@@ -1,1 +1,35 @@
+name: Deploy DEV
 
+on:
+  push:
+    paths:
+      - 'dev/**.yml'
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Read config
+        id: config
+        run: |
+          TAG=$(yq '.tag' dev/ape-students-center-management.yml)
+          REPO=$(yq '.repo' dev/ape-students-center-management.yml)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ape-students-center-management/dev
+            git fetch --tags
+            git checkout ${{ steps.config.outputs.tag }}
+            mvn clean package -DskipTests
+            pkill -f 'ape-students-center-management.*dev' || true
+            nohup java -jar target/*.jar --server.port=8081 > app.log 2>&1 &

@@ -13,18 +13,20 @@ jobs:
     runs-on: self-hosted
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v3
-
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/bin/yq
 
       - name: Detect changed file
         id: changed
         run: |
           FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "No config file changed"
+            exit 1
+          fi
+
           echo "file=$FILE" >> $GITHUB_OUTPUT
 
       - name: Parse config
@@ -35,8 +37,8 @@ jobs:
           ENV=$(echo $FILE | cut -d'/' -f1)
           SERVICE=$(basename $FILE .yml)
 
-          TAG=$(yq '.tag' $FILE)
-          REPO=$(yq '.repo' $FILE)
+          TAG=$(yq e '.tag' $FILE)
+          REPO=$(yq e '.repo' $FILE)
 
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
@@ -45,24 +47,33 @@ jobs:
 
       - name: Deploy
         run: |
+
           ENV=${{ steps.config.outputs.env }}
           SERVICE=${{ steps.config.outputs.service }}
           TAG=${{ steps.config.outputs.tag }}
           REPO=${{ steps.config.outputs.repo }}
 
-          APP_PATH="/home/Center-management/$ENV/$SERVICE"
+          BASE="/home/Center-management/$ENV/$SERVICE"
+          RELEASE="$BASE/releases/$TAG"
 
-          if [ ! -d "$APP_PATH" ]; then
-            git clone https://github.com/$REPO $APP_PATH
+          mkdir -p "$BASE/releases"
+
+          # clone only once
+          if [ ! -d "$RELEASE" ]; then
+            git clone https://github.com/$REPO "$RELEASE"
           fi
 
-          cd $APP_PATH
+          cd "$RELEASE"
 
           git fetch --all --tags
           git checkout $TAG
 
           mvn clean package -DskipTests
 
+          # symlink current version (best practice)
+          ln -sfn "$RELEASE" "$BASE/current"
+
+          # restart safely
           pkill -f "$SERVICE" || true
 
-          nohup java -jar target/*.jar > app.log 2>&1 &
+          nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &

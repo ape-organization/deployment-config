@@ -20,7 +20,7 @@ jobs:
       - name: Detect changed file
         id: changed
         run: |
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1)
+          FILE=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.yml$' | head -n 1)
 
           if [ -z "$FILE" ]; then
             echo "No config file changed"
@@ -56,9 +56,11 @@ jobs:
           BASE="/home/Center-management/$ENV/$SERVICE"
           RELEASE="$BASE/releases/$TAG"
 
+          echo "Deploying $SERVICE ($TAG) in $ENV"
+
           mkdir -p "$BASE/releases"
 
-          # clone only once
+          # clone only once per version
           if [ ! -d "$RELEASE" ]; then
             git clone https://github.com/$REPO "$RELEASE"
           fi
@@ -70,10 +72,10 @@ jobs:
 
           mvn clean package -DskipTests
 
-          # symlink current version (best practice)
+          # atomic switch (zero-downtime style base)
           ln -sfn "$RELEASE" "$BASE/current"
 
-          # restart safely
+          # restart app safely
           pkill -f "$SERVICE" || true
 
           nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &

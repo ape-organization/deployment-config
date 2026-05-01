@@ -17,20 +17,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      # ----------------------------
+      # Detect changed YAML safely
+      # ----------------------------
       - name: Detect changed file
         id: changed
         run: |
-          FILE=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.yml$' | head -n 1)
+          FILE=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
-            echo "No config file changed"
-            exit 1
+            echo "No YAML config changed → skipping deploy"
+            echo "file=NONE" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           echo "file=$FILE" >> $GITHUB_OUTPUT
 
+      # ----------------------------
+      # Parse config only if file exists
+      # ----------------------------
       - name: Parse config
         id: config
+        if: steps.changed.outputs.file != 'NONE'
         run: |
           FILE=${{ steps.changed.outputs.file }}
 
@@ -45,7 +53,11 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
 
+      # ----------------------------
+      # Deploy step
+      # ----------------------------
       - name: Deploy
+        if: steps.changed.outputs.file != 'NONE'
         run: |
 
           ENV=${{ steps.config.outputs.env }}
@@ -56,7 +68,7 @@ jobs:
           BASE="/home/Center-management/$ENV/$SERVICE"
           RELEASE="$BASE/releases/$TAG"
 
-          echo "Deploying $SERVICE ($TAG) in $ENV"
+          echo "🚀 Deploying $SERVICE version $TAG in $ENV"
 
           mkdir -p "$BASE/releases"
 
@@ -72,10 +84,10 @@ jobs:
 
           mvn clean package -DskipTests
 
-          # atomic switch (zero-downtime style base)
+          # atomic switch (safe deploy pattern)
           ln -sfn "$RELEASE" "$BASE/current"
 
-          # restart app safely
+          # restart service safely
           pkill -f "$SERVICE" || true
 
           nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &

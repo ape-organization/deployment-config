@@ -1,9 +1,11 @@
-name: Deploy DEV
+name: Deploy Service
 
 on:
   push:
     paths:
       - 'dev/*.yml'
+      - 'preprod/*.yml'
+      - 'prod/*.yml'
     branches: [ main ]
 
 jobs:
@@ -19,21 +21,48 @@ jobs:
           sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/bin/yq
 
-      - name: Read tag
+      - name: Detect changed file
+        id: changed
+        run: |
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1)
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Parse config
         id: config
         run: |
-          TAG=$(yq '.tag' dev/ape-students-center-management.yml)
+          FILE=${{ steps.changed.outputs.file }}
+
+          ENV=$(echo $FILE | cut -d'/' -f1)
+          SERVICE=$(basename $FILE .yml)
+
+          TAG=$(yq '.tag' $FILE)
+          REPO=$(yq '.repo' $FILE)
+
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
 
       - name: Deploy
         run: |
-          cd /home/Center-management/dev/ape-students-center-management
+          ENV=${{ steps.config.outputs.env }}
+          SERVICE=${{ steps.config.outputs.service }}
+          TAG=${{ steps.config.outputs.tag }}
+          REPO=${{ steps.config.outputs.repo }}
 
-          git fetch --tags
-          git checkout ${{ steps.config.outputs.tag }}
+          APP_PATH="/home/Center-management/$ENV/$SERVICE"
+
+          if [ ! -d "$APP_PATH" ]; then
+            git clone https://github.com/$REPO $APP_PATH
+          fi
+
+          cd $APP_PATH
+
+          git fetch --all --tags
+          git checkout $TAG
 
           mvn clean package -DskipTests
 
-          pkill -f 'ape-students-center-management' || true
+          pkill -f "$SERVICE" || true
 
-          nohup java -jar target/*.jar --server.port=8081 > app.log 2>&1 &
+          nohup java -jar target/*.jar > app.log 2>&1 &

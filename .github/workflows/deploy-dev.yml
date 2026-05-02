@@ -14,44 +14,48 @@ jobs:
 
     steps:
 
-      # -----------------------------
-      # Checkout deployment-config repo
-      # -----------------------------
+      # ----------------------------
+      # Checkout repository
+      # ----------------------------
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      # -----------------------------
-      # Download yq locally
-      # -----------------------------
-      - name: Install yq locally
+      # ----------------------------
+      # Install yq locally (no sudo)
+      # ----------------------------
+      - name: Install yq
         run: |
-          wget -qO yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          chmod +x yq
+          mkdir -p $HOME/bin
+          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x $HOME/bin/yq
+          echo "$HOME/bin" >> $GITHUB_PATH
 
-      # -----------------------------
+      # ----------------------------
       # Detect changed YAML file
-      # -----------------------------
-      - name: Detect changed config
+      # ----------------------------
+      - name: Detect changed YAML
         id: changed
         run: |
 
-          FILE=$(git diff --name-only HEAD~1 HEAD | grep '\.yml$' | head -n 1 || true)
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
-            echo "No YAML config changed"
+            echo "No YAML config changed → skipping deploy"
             echo "file=NONE" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Config file: $FILE"
+          echo "Changed file: $FILE"
           echo "file=$FILE" >> $GITHUB_OUTPUT
 
-      # -----------------------------
-      # Parse YAML
-      # -----------------------------
+      # ----------------------------
+      # Parse YAML config
+      # ----------------------------
       - name: Parse config
-        if: steps.changed.outputs.file != 'NONE'
         id: config
+        if: steps.changed.outputs.file != 'NONE'
         run: |
 
           FILE=${{ steps.changed.outputs.file }}
@@ -59,18 +63,18 @@ jobs:
           ENV=$(echo $FILE | cut -d'/' -f1)
           SERVICE=$(basename $FILE .yml)
 
-          TAG=$(./yq e '.tag' $FILE)
-          REPO=$(./yq e '.repo' $FILE)
+          TAG=$(yq e '.tag' $FILE)
+          REPO=$(yq e '.repo' $FILE)
 
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
 
-      # -----------------------------
+      # ----------------------------
       # Deploy
-      # -----------------------------
-      - name: Deploy Service
+      # ----------------------------
+      - name: Deploy service
         if: steps.changed.outputs.file != 'NONE'
         run: |
 
@@ -82,13 +86,10 @@ jobs:
           BASE="/home/Center-management/$ENV/$SERVICE"
           RELEASE="$BASE/releases/$TAG"
 
-          echo "Deploying $SERVICE"
-          echo "Environment: $ENV"
-          echo "Tag: $TAG"
+          echo "Deploying $SERVICE version $TAG in $ENV"
 
           mkdir -p "$BASE/releases"
 
-          # clone repo for release
           if [ ! -d "$RELEASE" ]; then
             git clone https://github.com/$REPO "$RELEASE"
           fi
@@ -100,13 +101,8 @@ jobs:
 
           mvn clean package -DskipTests
 
-          # switch current release
           ln -sfn "$RELEASE" "$BASE/current"
 
-          # stop old service
           pkill -f "$SERVICE" || true
 
-          # start new version
           nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &
-
-          echo "Deploy finished"

@@ -2,11 +2,12 @@ name: Deploy Service
 
 on:
   push:
-    branches: [ main ]
     paths:
       - 'dev/*.yml'
       - 'preprod/*.yml'
       - 'prod/*.yml'
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -14,32 +15,28 @@ jobs:
 
     steps:
 
-      # ---------------------------------
-      # Checkout repository (full history)
-      # ---------------------------------
+      # -----------------------
+      # Checkout repo
+      # -----------------------
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
-      # ---------------------------------
-      # Install yq (YAML parser)
-      # ---------------------------------
+      # -----------------------
+      # Install yq locally
+      # -----------------------
       - name: Install yq
         run: |
-          sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/bin/yq
+          wget -qO yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x yq
 
-      # ---------------------------------
+      # -----------------------
       # Detect changed YAML file
-      # ---------------------------------
-      - name: Detect changed YAML
+      # -----------------------
+      - name: Detect changed file
         id: changed
         run: |
 
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
-
-          echo "Changed file: $FILE"
+          FILE=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
             echo "No YAML config changed → skipping deploy"
@@ -47,7 +44,12 @@ jobs:
             exit 0
           fi
 
+          echo "Changed config file: $FILE"
           echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      # -----------------------
+      # Parse YAML config
+      # -----------------------
       - name: Parse config
         id: config
         if: steps.changed.outputs.file != 'NONE'
@@ -58,20 +60,18 @@ jobs:
           ENV=$(echo $FILE | cut -d'/' -f1)
           SERVICE=$(basename $FILE .yml)
 
-          TAG=$(yq e '.tag' $FILE)
-          REPO=$(yq e '.repo' $FILE)
-
-          echo "Environment: $ENV"
-          echo "Service: $SERVICE"
-          echo "Tag: $TAG"
-          echo "Repo: $REPO"
+          TAG=$(./yq e '.tag' $FILE)
+          REPO=$(./yq e '.repo' $FILE)
 
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
 
-      - name: Deploy service
+      # -----------------------
+      # Deploy
+      # -----------------------
+      - name: Deploy
         if: steps.changed.outputs.file != 'NONE'
         run: |
 
@@ -83,27 +83,33 @@ jobs:
           BASE="/home/Center-management/$ENV/$SERVICE"
           RELEASE="$BASE/releases/$TAG"
 
-          echo "🚀 Deploying $SERVICE version $TAG in $ENV"
+          echo "🚀 Deploying $SERVICE version $TAG to $ENV"
 
           mkdir -p "$BASE/releases"
 
-          # clone repo only if this version not exists
+          # clone version if not exists
           if [ ! -d "$RELEASE" ]; then
+            echo "Cloning repo..."
             git clone https://github.com/$REPO "$RELEASE"
           fi
 
           cd "$RELEASE"
 
+          echo "Fetching tags..."
           git fetch --all --tags
+
+          echo "Checkout tag $TAG"
           git checkout $TAG
 
-          # build project
+          echo "Build service"
           mvn clean package -DskipTests
 
-          # switch release (atomic deploy)
+          echo "Switch current release"
           ln -sfn "$RELEASE" "$BASE/current"
 
-          # restart service
+          echo "Restart service"
           pkill -f "$SERVICE" || true
 
           nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &
+
+          echo "✅ Deploy completed"

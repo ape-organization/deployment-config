@@ -2,11 +2,11 @@ name: Deploy Service
 
 on:
   push:
+    branches: [ main ]
     paths:
       - 'dev/*.yml'
       - 'preprod/*.yml'
       - 'prod/*.yml'
-    branches: [ main ]
 
 jobs:
   deploy:
@@ -14,16 +14,32 @@ jobs:
 
     steps:
 
+      # ---------------------------------
+      # Checkout repository (full history)
+      # ---------------------------------
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      # ----------------------------
-      # Detect changed YAML safely
-      # ----------------------------
-      - name: Detect changed file
+      # ---------------------------------
+      # Install yq (YAML parser)
+      # ---------------------------------
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/bin/yq
+
+      # ---------------------------------
+      # Detect changed YAML file
+      # ---------------------------------
+      - name: Detect changed YAML
         id: changed
         run: |
-          FILE=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
+
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
+
+          echo "Changed file: $FILE"
 
           if [ -z "$FILE" ]; then
             echo "No YAML config changed → skipping deploy"
@@ -32,14 +48,11 @@ jobs:
           fi
 
           echo "file=$FILE" >> $GITHUB_OUTPUT
-
-      # ----------------------------
-      # Parse config only if file exists
-      # ----------------------------
       - name: Parse config
         id: config
         if: steps.changed.outputs.file != 'NONE'
         run: |
+
           FILE=${{ steps.changed.outputs.file }}
 
           ENV=$(echo $FILE | cut -d'/' -f1)
@@ -48,15 +61,17 @@ jobs:
           TAG=$(yq e '.tag' $FILE)
           REPO=$(yq e '.repo' $FILE)
 
+          echo "Environment: $ENV"
+          echo "Service: $SERVICE"
+          echo "Tag: $TAG"
+          echo "Repo: $REPO"
+
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
 
-      # ----------------------------
-      # Deploy step
-      # ----------------------------
-      - name: Deploy
+      - name: Deploy service
         if: steps.changed.outputs.file != 'NONE'
         run: |
 
@@ -72,7 +87,7 @@ jobs:
 
           mkdir -p "$BASE/releases"
 
-          # clone only once per version
+          # clone repo only if this version not exists
           if [ ! -d "$RELEASE" ]; then
             git clone https://github.com/$REPO "$RELEASE"
           fi
@@ -82,12 +97,13 @@ jobs:
           git fetch --all --tags
           git checkout $TAG
 
+          # build project
           mvn clean package -DskipTests
 
-          # atomic switch (safe deploy pattern)
+          # switch release (atomic deploy)
           ln -sfn "$RELEASE" "$BASE/current"
 
-          # restart service safely
+          # restart service
           pkill -f "$SERVICE" || true
 
           nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &

@@ -1,3 +1,4 @@
+
 name: Deploy Service
 
 on:
@@ -9,24 +10,18 @@ on:
       - 'prod/*.yml'
 
 jobs:
-  deploy:
-    runs-on: self-hosted
 
-    environment: ${{ steps.config.outputs.env_upper }}
+  deploy-dev:
+    if: contains(join(github.event.commits.*.modified, ','), 'dev/')
+    runs-on: self-hosted
+    environment: DEV
 
     steps:
-
-      # ----------------------------
-      # Checkout repository
-      # ----------------------------
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # ----------------------------
-      # Install yq locally (no sudo)
-      # ----------------------------
       - name: Install yq
         run: |
           mkdir -p $HOME/bin
@@ -34,67 +29,33 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # ----------------------------
-      # Detect changed YAML file
-      # ----------------------------
-      - name: Detect changed YAML
-        id: changed
+      - name: Get changed file
+        id: file
         run: |
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^dev/.*\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
-            echo "No YAML config changed → skipping deploy"
-            echo "file=NONE" >> $GITHUB_OUTPUT
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Changed file: $FILE"
           echo "file=$FILE" >> $GITHUB_OUTPUT
 
-      # ----------------------------
-      # Parse YAML config
-      # ----------------------------
-      - name: Parse config
-        id: config
-        if: steps.changed.outputs.file != 'NONE'
-        run: |
-          FILE=${{ steps.changed.outputs.file }}
-
-          ENV=$(echo $FILE | cut -d'/' -f1)
-          ENV_UPPER=$(echo $ENV | tr '[:lower:]' '[:upper:]')
-
-          SERVICE=$(basename $FILE .yml)
-
-          TAG=$(yq e '.tag' $FILE)
-          REPO=$(yq e '.repo' $FILE)
-
-          echo "env=$ENV" >> $GITHUB_OUTPUT
-          echo "env_upper=$ENV_UPPER" >> $GITHUB_OUTPUT
-          echo "service=$SERVICE" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "repo=$REPO" >> $GITHUB_OUTPUT
-
-      # ----------------------------
-      # Deploy
-      # ----------------------------
-      - name: Deploy service
-        if: steps.changed.outputs.file != 'NONE'
+      - name: Deploy
+        if: steps.file.outputs.skip != 'true'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
           DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
+          FILE=${{ steps.file.outputs.file }}
 
-          ENV=${{ steps.config.outputs.env }}
-          SERVICE=${{ steps.config.outputs.service }}
-          TAG=${{ steps.config.outputs.tag }}
-          REPO=${{ steps.config.outputs.repo }}
+          SERVICE=$(basename $FILE .yml)
+          TAG=$(yq e '.tag' $FILE)
+          REPO=$(yq e '.repo' $FILE)
 
-          BASE="/home/Center-management/$ENV/$SERVICE"
+          BASE="/home/Center-management/dev/$SERVICE"
           RELEASE="$BASE/releases/$TAG"
-
-          echo "Deploying $SERVICE version $TAG in $ENV"
-          echo "Using DB host: $DATABASE_HOST_SERVER"
 
           mkdir -p "$BASE/releases"
 
@@ -103,7 +64,146 @@ jobs:
           fi
 
           cd "$RELEASE"
+          git fetch --all --tags
+          git checkout $TAG
 
+          mvn clean package -DskipTests
+
+          ln -sfn "$RELEASE" "$BASE/current"
+
+          pkill -f "$SERVICE" || true
+
+          nohup java \
+            -Ddb.host=$DATABASE_HOST_SERVER \
+            -Ddb.name=$DATABASE_NAME \
+            -Ddb.password=$DATABASE_PASSWORD \
+            -jar "$BASE/current/target/"*.jar \
+            > "$BASE/app.log" 2>&1 &
+
+
+  deploy-preprod:
+    if: contains(join(github.event.commits.*.modified, ','), 'preprod/')
+    runs-on: self-hosted
+    environment: PREPROD
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          mkdir -p $HOME/bin
+          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x $HOME/bin/yq
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Get changed file
+        id: file
+        run: |
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^preprod/.*\.yml$' | head -n 1 || true)
+
+          if [ -z "$FILE" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Deploy
+        if: steps.file.outputs.skip != 'true'
+        env:
+          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        run: |
+          FILE=${{ steps.file.outputs.file }}
+
+          SERVICE=$(basename $FILE .yml)
+          TAG=$(yq e '.tag' $FILE)
+          REPO=$(yq e '.repo' $FILE)
+
+          BASE="/home/Center-management/preprod/$SERVICE"
+          RELEASE="$BASE/releases/$TAG"
+
+          mkdir -p "$BASE/releases"
+
+          if [ ! -d "$RELEASE" ]; then
+            git clone https://github.com/$REPO "$RELEASE"
+          fi
+
+          cd "$RELEASE"
+          git fetch --all --tags
+          git checkout $TAG
+
+          mvn clean package -DskipTests
+
+          ln -sfn "$RELEASE" "$BASE/current"
+
+          pkill -f "$SERVICE" || true
+
+          nohup java \
+            -Ddb.host=$DATABASE_HOST_SERVER \
+            -Ddb.name=$DATABASE_NAME \
+            -Ddb.password=$DATABASE_PASSWORD \
+            -jar "$BASE/current/target/"*.jar \
+            > "$BASE/app.log" 2>&1 &
+
+
+  deploy-prod:
+    if: contains(join(github.event.commits.*.modified, ','), 'prod/')
+    runs-on: self-hosted
+    environment: PROD
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          mkdir -p $HOME/bin
+          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x $HOME/bin/yq
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Get changed file
+        id: file
+        run: |
+          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^prod/.*\.yml$' | head -n 1 || true)
+
+          if [ -z "$FILE" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Deploy
+        if: steps.file.outputs.skip != 'true'
+        env:
+          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        run: |
+          FILE=${{ steps.file.outputs.file }}
+
+          SERVICE=$(basename $FILE .yml)
+          TAG=$(yq e '.tag' $FILE)
+          REPO=$(yq e '.repo' $FILE)
+
+          BASE="/home/Center-management/prod/$SERVICE"
+          RELEASE="$BASE/releases/$TAG"
+
+          mkdir -p "$BASE/releases"
+
+          if [ ! -d "$RELEASE" ]; then
+            git clone https://github.com/$REPO "$RELEASE"
+          fi
+
+          cd "$RELEASE"
           git fetch --all --tags
           git checkout $TAG
 

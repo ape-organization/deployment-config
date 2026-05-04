@@ -12,6 +12,8 @@ jobs:
   deploy:
     runs-on: self-hosted
 
+    environment: ${{ steps.config.outputs.env_upper }}
+
     steps:
 
       # ----------------------------
@@ -38,7 +40,6 @@ jobs:
       - name: Detect changed YAML
         id: changed
         run: |
-
           FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
@@ -57,16 +58,18 @@ jobs:
         id: config
         if: steps.changed.outputs.file != 'NONE'
         run: |
-
           FILE=${{ steps.changed.outputs.file }}
 
           ENV=$(echo $FILE | cut -d'/' -f1)
+          ENV_UPPER=$(echo $ENV | tr '[:lower:]' '[:upper:]')
+
           SERVICE=$(basename $FILE .yml)
 
           TAG=$(yq e '.tag' $FILE)
           REPO=$(yq e '.repo' $FILE)
 
           echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "env_upper=$ENV_UPPER" >> $GITHUB_OUTPUT
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
@@ -76,6 +79,10 @@ jobs:
       # ----------------------------
       - name: Deploy service
         if: steps.changed.outputs.file != 'NONE'
+        env:
+          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
+          DATABASE_NAME: ${{ variables.DATABASE_NAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
 
           ENV=${{ steps.config.outputs.env }}
@@ -87,6 +94,7 @@ jobs:
           RELEASE="$BASE/releases/$TAG"
 
           echo "Deploying $SERVICE version $TAG in $ENV"
+          echo "Using DB host: $DATABASE_HOST_SERVER"
 
           mkdir -p "$BASE/releases"
 
@@ -105,4 +113,9 @@ jobs:
 
           pkill -f "$SERVICE" || true
 
-          nohup java -jar "$BASE/current/target/"*.jar > "$BASE/app.log" 2>&1 &
+          nohup java \
+            -Ddb.host=$DATABASE_HOST_SERVER \
+            -Ddb.name=$DATABASE_NAME \
+            -Ddb.password=$DATABASE_PASSWORD \
+            -jar "$BASE/current/target/"*.jar \
+            > "$BASE/app.log" 2>&1 &

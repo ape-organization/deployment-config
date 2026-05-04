@@ -81,7 +81,7 @@ jobs:
         if: steps.changed.outputs.file != 'NONE'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-          DATABASE_NAME: ${{ variables.DATABASE_NAME }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
 

@@ -25,15 +25,6 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Get org secrets
-        run: |
-          echo "${{ secrets.ORG_PAT }}" | gh auth login --with-token
-          NAMES=$(gh secret list --org ape-organization --json name | jq -r '.[].name')
-          for name in $NAMES; do
-            value=$(gh secret get $name --org ape-organization)
-            echo "$name=$value" >> $GITHUB_ENV
-          done
-
       - name: Detect changed files
         id: files
         run: |
@@ -41,7 +32,7 @@ jobs:
           git fetch origin main
 
           FILES=$(git show --name-only --pretty="" ${{ github.sha }})
-          
+
           echo "Changed files:"
           echo "$FILES"
 

@@ -1,4 +1,4 @@
-name: Deploy Service
+name: Deploy Services (Generic)
 
 on:
   push:
@@ -9,14 +9,18 @@ on:
       - 'prod/*.yml'
 
 jobs:
-
-  deploy-dev:
+  deploy:
     runs-on: self-hosted
-    environment: DEV
+
+    strategy:
+      matrix:
+        env: [dev, preprod, prod]
+
+    environment: ${{ matrix.env }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout config repo
+        uses: actions/checkout@v4
 
       - name: Install yq
         run: |
@@ -25,195 +29,127 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # ✅ FIX: detect changes بطريقة صح
-      - name: Detect dev changes
-        id: file
+      # ✅ Detect changed files per env
+      - name: Detect changed files
+        id: files
         run: |
-          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^dev/.*\.yml$' | head -n 1 || true)
+          FILES=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep "^${{ matrix.env }}/.*\.yml$" || true)
 
-          if [ -z "$FILE" ]; then
+          if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "file=$FILE" >> $GITHUB_OUTPUT
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy DEV
-        if: steps.file.outputs.skip != 'true'
-        env:
-          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-          DATABASE_NAME: ${{ secrets.DATABASE_NAME_DEV }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD_DEV }}
-        run: |
-          FILE=${{ steps.file.outputs.file }}
-
-          SERVICE=$(basename $FILE .yml)
-          TAG=$(yq e '.tag' $FILE)
-          REPO=$(yq e '.repo' $FILE)
-
-          BASE="/home/Center-management/dev/$SERVICE"
-          RELEASE="$BASE/releases/$TAG"
-
-          echo "Deploying $SERVICE version $TAG in DEV"
-
-          mkdir -p "$BASE/releases"
-
-          if [ ! -d "$RELEASE" ]; then
-            git clone https://github.com/$REPO "$RELEASE"
-          fi
-
-          cd "$RELEASE"
-          git fetch --all --tags
-          git checkout $TAG
-
-          mvn clean package -DskipTests
-
-          ln -sfn "$RELEASE" "$BASE/current"
-
-          pkill -f "$SERVICE" || true
-
-          # ✅ FIX: Spring datasource variables
-          nohup java \
-            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-            -Dspring.datasource.username=sa \
-            -Dspring.datasource.password=$DATABASE_PASSWORD \
-            -jar "$BASE/current/target/"*.jar \
-            > "$BASE/app.log" 2>&1 &
-
-
-  deploy-preprod:
-    runs-on: self-hosted
-    environment: PREPROD
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Install yq
-        run: |
-          mkdir -p $HOME/bin
-          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          chmod +x $HOME/bin/yq
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      - name: Detect preprod changes
-        id: file
-        run: |
-          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^preprod/.*\.yml$' | head -n 1 || true)
-
-          if [ -z "$FILE" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "file=$FILE" >> $GITHUB_OUTPUT
-
-      - name: Deploy PREPROD
-        if: steps.file.outputs.skip != 'true'
+      # ✅ Deploy all changed services
+      - name: Deploy services
+        if: steps.files.outputs.skip != 'true'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
           DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
-          FILE=${{ steps.file.outputs.file }}
 
-          SERVICE=$(basename $FILE .yml)
-          TAG=$(yq e '.tag' $FILE)
-          REPO=$(yq e '.repo' $FILE)
+          ENV=${{ matrix.env }}
 
-          BASE="/home/Center-management/preprod/$SERVICE"
-          RELEASE="$BASE/releases/$TAG"
+          echo "${{ steps.files.outputs.files }}" | while read FILE; do
 
-          echo "Deploying $SERVICE version $TAG in PREPROD"
+            echo "=============================="
+            echo "Processing $FILE"
+            echo "=============================="
 
-          mkdir -p "$BASE/releases"
+            SERVICE=$(basename $FILE .yml)
+            TAG=$(yq e '.tag' $FILE)
+            REPO=$(yq e '.repo' $FILE)
+            TYPE=$(yq e '.type' $FILE)
 
-          if [ ! -d "$RELEASE" ]; then
-            git clone https://github.com/$REPO "$RELEASE"
-          fi
+            BASE="/home/Center-management/$ENV/$SERVICE"
+            RELEASE="$BASE/releases/$TAG"
 
-          cd "$RELEASE"
-          git fetch --all --tags
-          git checkout $TAG
+            echo "Service: $SERVICE"
+            echo "Repo: $REPO"
+            echo "Tag: $TAG"
+            echo "Type: $TYPE"
 
-          mvn clean package -DskipTests
+            mkdir -p "$BASE/releases"
 
-          ln -sfn "$RELEASE" "$BASE/current"
+            # Clone if not exists
+            if [ ! -d "$RELEASE" ]; then
+              git clone https://github.com/$REPO "$RELEASE"
+            fi
 
-          pkill -f "$SERVICE" || true
+            cd "$RELEASE"
+            git fetch --all --tags
+            git checkout $TAG
 
-          nohup java \
-            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-            -Dspring.datasource.username=sa \
-            -Dspring.datasource.password=$DATABASE_PASSWORD \
-            -jar "$BASE/current/target/"*.jar \
-            > "$BASE/app.log" 2>&1 &
+            ########################################
+            # 🔥 BUILD حسب نوع المشروع
+            ########################################
 
+            if [ "$TYPE" == "java" ]; then
+              mvn clean package -DskipTests
 
-  deploy-prod:
-    runs-on: self-hosted
-    environment: PROD
+            elif [ "$TYPE" == "node" ]; then
+              npm install
+              npm run build || true
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+            elif [ "$TYPE" == "python" ]; then
+              pip install -r requirements.txt || true
 
-      - name: Install yq
-        run: |
-          mkdir -p $HOME/bin
-          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          chmod +x $HOME/bin/yq
-          echo "$HOME/bin" >> $GITHUB_PATH
+            elif [ "$TYPE" == "docker" ]; then
+              docker build -t $SERVICE:$TAG .
 
-      - name: Detect prod changes
-        id: file
-        run: |
-          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^prod/.*\.yml$' | head -n 1 || true)
+            else
+              echo "Unknown type → fallback to docker"
+              docker build -t $SERVICE:$TAG .
+            fi
 
-          if [ -z "$FILE" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+            ########################################
+            # 🔁 Switch release
+            ########################################
+            ln -sfn "$RELEASE" "$BASE/current"
 
-          echo "file=$FILE" >> $GITHUB_OUTPUT
+            ########################################
+            # 🛑 Stop old process
+            ########################################
+            pkill -f "$SERVICE" || true
 
-      - name: Deploy PROD
-        if: steps.file.outputs.skip != 'true'
-        env:
-          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-        run: |
-          FILE=${{ steps.file.outputs.file }}
+            ########################################
+            # 🚀 RUN حسب النوع
+            ########################################
 
-          SERVICE=$(basename $FILE .yml)
-          TAG=$(yq e '.tag' $FILE)
-          REPO=$(yq e '.repo' $FILE)
+            if [ "$TYPE" == "java" ]; then
 
-          BASE="/home/Center-management/prod/$SERVICE"
-          RELEASE="$BASE/releases/$TAG"
+              nohup java \
+                -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                -Dspring.datasource.username=sa \
+                -Dspring.datasource.password=$DATABASE_PASSWORD \
+                -jar "$BASE/current/target/"*.jar \
+                > "$BASE/app.log" 2>&1 &
 
-          echo "Deploying $SERVICE version $TAG in PROD"
+            elif [ "$TYPE" == "node" ]; then
 
-          mkdir -p "$BASE/releases"
+              nohup node "$BASE/current/dist/index.js" \
+                > "$BASE/app.log" 2>&1 &
 
-          if [ ! -d "$RELEASE" ]; then
-            git clone https://github.com/$REPO "$RELEASE"
-          fi
+            elif [ "$TYPE" == "python" ]; then
 
-          cd "$RELEASE"
-          git fetch --all --tags
-          git checkout $TAG
+              nohup python3 "$BASE/current/app.py" \
+                > "$BASE/app.log" 2>&1 &
 
-          mvn clean package -DskipTests
+            elif [ "$TYPE" == "docker" ]; then
 
-          ln -sfn "$RELEASE" "$BASE/current"
+              docker rm -f $SERVICE 2>/dev/null || true
+              docker run -d \
+                --name $SERVICE \
+                -p 0:8080 \
+                $SERVICE:$TAG
 
-          pkill -f "$SERVICE" || true
+            fi
 
-          nohup java \
-            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-            -Dspring.datasource.username=sa \
-            -Dspring.datasource.password=$DATABASE_PASSWORD \
-            -jar "$BASE/current/target/"*.jar \
-            > "$BASE/app.log" 2>&1 &
+            echo "✅ $SERVICE deployed successfully in $ENV"
+
+          done

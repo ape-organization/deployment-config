@@ -25,26 +25,14 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Install gh and jq
-        run: |
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update
-          sudo apt install gh jq -y
-
       - name: Get org secrets
         run: |
-          gh auth login --with-token ${{ secrets.ORG_PAT }}
+          echo "${{ secrets.ORG_PAT }}" | gh auth login --with-token
           NAMES=$(gh secret list --org ape-organization --json name | jq -r '.[].name')
           for name in $NAMES; do
             value=$(gh secret get $name --org ape-organization)
             echo "$name=$value" >> $GITHUB_ENV
           done
-
-      - name: Upload and make script executable
-        run: |
-          sudo cp scripts/remote-deploy.sh /usr/local/bin/remote-deploy.sh
-          sudo chmod +x /usr/local/bin/remote-deploy.sh
 
       - name: Detect changed files
         id: files

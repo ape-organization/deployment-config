@@ -32,7 +32,22 @@ jobs:
       - name: Detect changed files
         id: files
         run: |
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep "^${{ matrix.env }}/.*\.yml$" || true)
+      
+          git fetch --all
+      
+          BEFORE=${{ github.event.before }}
+          AFTER=${{ github.sha }}
+      
+          echo "Before: $BEFORE"
+          echo "After: $AFTER"
+      
+          # 🧠 fallback لو before مش موجود
+          if [ -z "$BEFORE" ] || ! git cat-file -e $BEFORE 2>/dev/null; then
+            BEFORE=$(git rev-list --max-parents=0 HEAD)
+            echo "Fallback BEFORE commit: $BEFORE"
+          fi
+      
+          FILES=$(git diff --name-only $BEFORE $AFTER | grep "^dev/.*\.yml$" || true)
       
           echo "Changed files:"
           echo "$FILES"

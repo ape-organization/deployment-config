@@ -17,8 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: Install yq
         run: |
@@ -27,13 +25,11 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
+      # ✅ FIX: detect changes بطريقة صح
       - name: Detect dev changes
         id: file
         run: |
-          echo "Changed files:"
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }}
-
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^dev/.*\.yml$' | head -n 1 || true)
+          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^dev/.*\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -76,10 +72,11 @@ jobs:
 
           pkill -f "$SERVICE" || true
 
+          # ✅ FIX: Spring datasource variables
           nohup java \
-            -Ddb.host=$DATABASE_HOST_SERVER \
-            -Ddb.name=$DATABASE_NAME \
-            -Ddb.password=$DATABASE_PASSWORD \
+            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+            -Dspring.datasource.username=sa \
+            -Dspring.datasource.password=$DATABASE_PASSWORD \
             -jar "$BASE/current/target/"*.jar \
             > "$BASE/app.log" 2>&1 &
 
@@ -91,8 +88,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: Install yq
         run: |
@@ -104,7 +99,7 @@ jobs:
       - name: Detect preprod changes
         id: file
         run: |
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^preprod/.*\.yml$' | head -n 1 || true)
+          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^preprod/.*\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -148,9 +143,9 @@ jobs:
           pkill -f "$SERVICE" || true
 
           nohup java \
-            -Ddb.host=$DATABASE_HOST_SERVER \
-            -Ddb.name=$DATABASE_NAME \
-            -Ddb.password=$DATABASE_PASSWORD \
+            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+            -Dspring.datasource.username=sa \
+            -Dspring.datasource.password=$DATABASE_PASSWORD \
             -jar "$BASE/current/target/"*.jar \
             > "$BASE/app.log" 2>&1 &
 
@@ -162,8 +157,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: Install yq
         run: |
@@ -175,7 +168,7 @@ jobs:
       - name: Detect prod changes
         id: file
         run: |
-          FILE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^prod/.*\.yml$' | head -n 1 || true)
+          FILE=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep '^prod/.*\.yml$' | head -n 1 || true)
 
           if [ -z "$FILE" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -219,8 +212,8 @@ jobs:
           pkill -f "$SERVICE" || true
 
           nohup java \
-            -Ddb.host=$DATABASE_HOST_SERVER \
-            -Ddb.name=$DATABASE_NAME \
-            -Ddb.password=$DATABASE_PASSWORD \
+            -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+            -Dspring.datasource.username=sa \
+            -Dspring.datasource.password=$DATABASE_PASSWORD \
             -jar "$BASE/current/target/"*.jar \
             > "$BASE/app.log" 2>&1 &

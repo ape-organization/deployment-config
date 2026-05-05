@@ -28,18 +28,20 @@ jobs:
           wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
-
-      # ✅ Detect changed files per env
+      
       - name: Detect changed files
         id: files
         run: |
-          FILES=$(printf "%s\n" "${{ join(github.event.commits.*.modified, '\n') }}" | grep "^${{ matrix.env }}/.*\.yml$" || true)
-
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep "^${{ matrix.env }}/.*\.yml$" || true)
+      
+          echo "Changed files:"
+          echo "$FILES"
+      
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-
+      
           echo "files<<EOF" >> $GITHUB_OUTPUT
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

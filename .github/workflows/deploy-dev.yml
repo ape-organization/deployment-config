@@ -1,4 +1,4 @@
-name: Deploy Services (Generic)
+name: Deploy Services
 
 on:
   push:
@@ -12,15 +12,11 @@ jobs:
   deploy:
     runs-on: self-hosted
 
-    strategy:
-      matrix:
-        env: [dev, preprod, prod]
-
-    environment: ${{ matrix.env }}
-
     steps:
       - name: Checkout config repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install yq
         run: |
@@ -28,40 +24,27 @@ jobs:
           wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
-      
+
       - name: Detect changed files
         id: files
         run: |
-      
-          git fetch --all
-      
-          BEFORE=${{ github.event.before }}
-          AFTER=${{ github.sha }}
-      
-          echo "Before: $BEFORE"
-          echo "After: $AFTER"
-      
-          # 🧠 fallback لو before مش موجود
-          if [ -z "$BEFORE" ] || ! git cat-file -e $BEFORE 2>/dev/null; then
-            BEFORE=$(git rev-list --max-parents=0 HEAD)
-            echo "Fallback BEFORE commit: $BEFORE"
-          fi
-      
-          FILES=$(git diff --name-only $BEFORE $AFTER | grep "^dev/.*\.yml$" || true)
-      
+
+          git fetch origin main
+
+          FILES=$(git diff --name-only origin/main...HEAD | grep -E "^(dev|preprod|prod)/.*\.yml$" || true)
+
           echo "Changed files:"
           echo "$FILES"
-      
+
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-      
+
           echo "files<<EOF" >> $GITHUB_OUTPUT
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # ✅ Deploy all changed services
       - name: Deploy services
         if: steps.files.outputs.skip != 'true'
         env:
@@ -70,13 +53,15 @@ jobs:
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
 
-          ENV=${{ matrix.env }}
-
           echo "${{ steps.files.outputs.files }}" | while read FILE; do
 
+            [ -z "$FILE" ] && continue
+
             echo "=============================="
-            echo "Processing $FILE"
+            echo "Deploying $FILE"
             echo "=============================="
+
+            ENV=$(echo "$FILE" | cut -d'/' -f1)
 
             SERVICE=$(basename $FILE .yml)
             TAG=$(yq e '.tag' $FILE)
@@ -86,14 +71,8 @@ jobs:
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
 
-            echo "Service: $SERVICE"
-            echo "Repo: $REPO"
-            echo "Tag: $TAG"
-            echo "Type: $TYPE"
-
             mkdir -p "$BASE/releases"
 
-            # Clone if not exists
             if [ ! -d "$RELEASE" ]; then
               git clone https://github.com/$REPO "$RELEASE"
             fi
@@ -102,71 +81,72 @@ jobs:
             git fetch --all --tags
             git checkout $TAG
 
-            ########################################
-            # 🔥 BUILD حسب نوع المشروع
-            ########################################
+            echo "Building $SERVICE ($TYPE)"
 
-            if [ "$TYPE" == "java" ]; then
-              mvn clean package -DskipTests
+            #################################
+            # BUILD
+            #################################
+            case "$TYPE" in
 
-            elif [ "$TYPE" == "node" ]; then
-              npm install
-              npm run build || true
+              java)
+                mvn clean package -DskipTests
+                ;;
 
-            elif [ "$TYPE" == "python" ]; then
-              pip install -r requirements.txt || true
+              node)
+                npm install
+                npm run build || true
+                ;;
 
-            elif [ "$TYPE" == "docker" ]; then
-              docker build -t $SERVICE:$TAG .
+              python)
+                pip install -r requirements.txt || true
+                ;;
 
-            else
-              echo "Unknown type → fallback to docker"
-              docker build -t $SERVICE:$TAG .
-            fi
+              docker)
+                docker build -t $SERVICE:$TAG .
+                ;;
 
-            ########################################
-            # 🔁 Switch release
-            ########################################
+              *)
+                echo "Unknown type, skipping build"
+                ;;
+            esac
+
             ln -sfn "$RELEASE" "$BASE/current"
 
-            ########################################
-            # 🛑 Stop old process
-            ########################################
             pkill -f "$SERVICE" || true
 
-            ########################################
-            # 🚀 RUN حسب النوع
-            ########################################
+            #################################
+            # RUN
+            #################################
+            case "$TYPE" in
 
-            if [ "$TYPE" == "java" ]; then
+              java)
+                nohup java \
+                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                  -Dspring.datasource.username=sa \
+                  -Dspring.datasource.password=$DATABASE_PASSWORD \
+                  -jar "$BASE/current/target/"*.jar \
+                  > "$BASE/app.log" 2>&1 &
+                ;;
 
-              nohup java \
-                -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                -Dspring.datasource.username=sa \
-                -Dspring.datasource.password=$DATABASE_PASSWORD \
-                -jar "$BASE/current/target/"*.jar \
-                > "$BASE/app.log" 2>&1 &
+              node)
+                nohup node "$BASE/current/dist/index.js" \
+                  > "$BASE/app.log" 2>&1 &
+                ;;
 
-            elif [ "$TYPE" == "node" ]; then
+              python)
+                nohup python3 "$BASE/current/app.py" \
+                  > "$BASE/app.log" 2>&1 &
+                ;;
 
-              nohup node "$BASE/current/dist/index.js" \
-                > "$BASE/app.log" 2>&1 &
+              docker)
+                docker rm -f $SERVICE 2>/dev/null || true
+                docker run -d \
+                  --name $SERVICE \
+                  -p 0:8080 \
+                  $SERVICE:$TAG
+                ;;
+            esac
 
-            elif [ "$TYPE" == "python" ]; then
-
-              nohup python3 "$BASE/current/app.py" \
-                > "$BASE/app.log" 2>&1 &
-
-            elif [ "$TYPE" == "docker" ]; then
-
-              docker rm -f $SERVICE 2>/dev/null || true
-              docker run -d \
-                --name $SERVICE \
-                -p 0:8080 \
-                $SERVICE:$TAG
-
-            fi
-
-            echo "✅ $SERVICE deployed successfully in $ENV"
+            echo "✅ $SERVICE deployed in $ENV"
 
           done

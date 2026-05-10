@@ -29,7 +29,11 @@ jobs:
         id: files
         run: |
           git fetch origin main
+
           FILES=$(git show --name-only --pretty="" ${{ github.sha }})
+
+          echo "Changed files:"
+          echo "$FILES"
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -40,7 +44,7 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy
+      - name: Deploy services
         if: steps.files.outputs.skip != 'true'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
@@ -54,7 +58,9 @@ jobs:
 
             [ -z "$FILE" ] && continue
 
+            echo "=============================="
             echo "Deploying: $FILE"
+            echo "=============================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
 
@@ -81,7 +87,7 @@ jobs:
             git checkout $TAG
 
             #################################
-            # BUILD ENV FILE (clean version)
+            # BUILD ENV FILE
             #################################
 
             ENV_FILE="$BASE/runtime.env"
@@ -93,7 +99,7 @@ jobs:
               if [ -n "$VALUE" ]; then
                 echo "$VAR=$VALUE" >> "$ENV_FILE"
               else
-                echo "Missing: $VAR"
+                echo "⚠ Missing: $VAR"
               fi
             done
 
@@ -101,17 +107,23 @@ jobs:
             # BUILD
             #################################
 
+            echo "Building $SERVICE ($TYPE)"
+
             case "$TYPE" in
+
               java)
                 mvn clean package -DskipTests
                 ;;
+
               node)
                 npm install
                 npm run build || true
                 ;;
+
               python)
                 pip install -r requirements.txt || true
                 ;;
+
               docker)
                 docker build -t $SERVICE:$TAG .
                 ;;
@@ -125,7 +137,7 @@ jobs:
             pkill -f "$SERVICE" || true
 
             #################################
-            # RUN (clean & unified)
+            # RUN
             #################################
 
             set -a
@@ -135,21 +147,32 @@ jobs:
             case "$TYPE" in
 
               java)
+                echo "Locating JAR..."
+
+                JAR=$(find target -type f -name "*.jar" | grep -v original | head -n 1)
+
+                if [ -z "$JAR" ]; then
+                  echo "❌ No JAR found after build"
+                  exit 1
+                fi
+
+                echo "✔ Running: $JAR"
+
                 nohup java \
                   -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
                   -Dspring.datasource.username=sa \
                   -Dspring.datasource.password=$DATABASE_PASSWORD \
-                  -jar "$BASE/current/target/"*.jar \
+                  -jar "$JAR" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               node)
-                nohup node "$BASE/current/dist/index.js" \
+                nohup env $(cat "$ENV_FILE" | xargs) node "$BASE/current/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               python)
-                nohup python3 "$BASE/current/app.py" \
+                nohup env $(cat "$ENV_FILE" | xargs) python3 "$BASE/current/app.py" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
@@ -163,6 +186,6 @@ jobs:
                 ;;
             esac
 
-            echo "OK: $SERVICE deployed"
+            echo "✅ Deployed: $SERVICE in $ENV"
 
           done

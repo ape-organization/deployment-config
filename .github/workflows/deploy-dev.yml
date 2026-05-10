@@ -32,9 +32,6 @@ jobs:
 
           FILES=$(git show --name-only --pretty="" ${{ github.sha }})
 
-          echo "Changed files:"
-          echo "$FILES"
-
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
@@ -71,23 +68,21 @@ jobs:
 
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
+            WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
             mkdir -p "$BASE/releases"
+            rm -rf "$WORKSPACE"
 
             #################################
-            # CLONE
+            # CLONE INTO WORKSPACE
             #################################
 
-            if [ ! -d "$RELEASE" ]; then
-              git clone https://github.com/$REPO "$RELEASE"
-            fi
-
-            cd "$RELEASE"
-            git fetch --all --tags
+            git clone https://github.com/$REPO "$WORKSPACE"
+            cd "$WORKSPACE"
             git checkout $TAG
 
             #################################
-            # BUILD ENV FILE
+            # ENV FILE
             #################################
 
             ENV_FILE="$BASE/runtime.env"
@@ -130,6 +125,22 @@ jobs:
             esac
 
             #################################
+            # JAVA ARTIFACT FIX (IMPORTANT)
+            #################################
+
+            if [ "$TYPE" = "java" ]; then
+
+              JAR=$(find target -type f -name "*.jar" | grep -v original | head -n 1)
+
+              if [ -z "$JAR" ]; then
+                echo "❌ Build failed: JAR not found"
+                exit 1
+              fi
+
+              cp "$JAR" "$RELEASE/app.jar"
+            fi
+
+            #################################
             # SWITCH RELEASE
             #################################
 
@@ -147,32 +158,21 @@ jobs:
             case "$TYPE" in
 
               java)
-                echo "Locating JAR..."
-
-                JAR=$(find target -type f -name "*.jar" | grep -v original | head -n 1)
-
-                if [ -z "$JAR" ]; then
-                  echo "❌ No JAR found after build"
-                  exit 1
-                fi
-
-                echo "✔ Running: $JAR"
-
                 nohup java \
                   -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
                   -Dspring.datasource.username=sa \
                   -Dspring.datasource.password=$DATABASE_PASSWORD \
-                  -jar "$JAR" \
+                  -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               node)
-                nohup env $(cat "$ENV_FILE" | xargs) node "$BASE/current/dist/index.js" \
+                nohup env $(cat "$ENV_FILE" | xargs) node "$WORKSPACE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               python)
-                nohup env $(cat "$ENV_FILE" | xargs) python3 "$BASE/current/app.py" \
+                nohup env $(cat "$ENV_FILE" | xargs) python3 "$WORKSPACE/app.py" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
@@ -186,6 +186,6 @@ jobs:
                 ;;
             esac
 
-            echo "✅ Deployed: $SERVICE in $ENV"
+            echo "✅ Deployed: $SERVICE ($ENV)"
 
           done

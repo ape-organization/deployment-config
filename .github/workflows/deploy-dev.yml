@@ -48,8 +48,8 @@ jobs:
         if: steps.files.outputs.skip != 'true'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME_DEV }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD_DEV }}
         run: |
 
           set -e

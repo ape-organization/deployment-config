@@ -28,13 +28,8 @@ jobs:
       - name: Detect changed files
         id: files
         run: |
-
           git fetch origin main
-
           FILES=$(git show --name-only --pretty="" ${{ github.sha }})
-
-          echo "Changed files:"
-          echo "$FILES"
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -45,7 +40,7 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy services
+      - name: Deploy
         if: steps.files.outputs.skip != 'true'
         env:
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
@@ -53,13 +48,13 @@ jobs:
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: |
 
+          set -e
+
           echo "${{ steps.files.outputs.files }}" | while read FILE; do
 
             [ -z "$FILE" ] && continue
 
-            echo "=============================="
-            echo "Deploying $FILE"
-            echo "=============================="
+            echo "Deploying: $FILE"
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
 
@@ -73,6 +68,10 @@ jobs:
 
             mkdir -p "$BASE/releases"
 
+            #################################
+            # CLONE
+            #################################
+
             if [ ! -d "$RELEASE" ]; then
               git clone https://github.com/$REPO "$RELEASE"
             fi
@@ -81,42 +80,58 @@ jobs:
             git fetch --all --tags
             git checkout $TAG
 
-            echo "Building $SERVICE ($TYPE)"
+            #################################
+            # BUILD ENV FILE (clean version)
+            #################################
+
+            ENV_FILE="$BASE/runtime.env"
+            : > "$ENV_FILE"
+
+            for VAR in $(yq e '.env[]' $FILE 2>/dev/null); do
+              VALUE=$(printenv $VAR || true)
+
+              if [ -n "$VALUE" ]; then
+                echo "$VAR=$VALUE" >> "$ENV_FILE"
+              else
+                echo "Missing: $VAR"
+              fi
+            done
 
             #################################
             # BUILD
             #################################
-            case "$TYPE" in
 
+            case "$TYPE" in
               java)
                 mvn clean package -DskipTests
                 ;;
-
               node)
                 npm install
                 npm run build || true
                 ;;
-
               python)
                 pip install -r requirements.txt || true
                 ;;
-
               docker)
                 docker build -t $SERVICE:$TAG .
                 ;;
-
-              *)
-                echo "Unknown type, skipping build"
-                ;;
             esac
 
-            ln -sfn "$RELEASE" "$BASE/current"
+            #################################
+            # SWITCH RELEASE
+            #################################
 
+            ln -sfn "$RELEASE" "$BASE/current"
             pkill -f "$SERVICE" || true
 
             #################################
-            # RUN
+            # RUN (clean & unified)
             #################################
+
+            set -a
+            source "$ENV_FILE"
+            set +a
+
             case "$TYPE" in
 
               java)
@@ -142,11 +157,12 @@ jobs:
                 docker rm -f $SERVICE 2>/dev/null || true
                 docker run -d \
                   --name $SERVICE \
+                  --env-file "$ENV_FILE" \
                   -p 0:8080 \
                   $SERVICE:$TAG
                 ;;
             esac
 
-            echo "✅ $SERVICE deployed in $ENV"
+            echo "OK: $SERVICE deployed"
 
           done

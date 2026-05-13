@@ -1,46 +1,3 @@
-name: Deploy Services
-
-on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'dev/*.yml'
-      - 'preprod/*.yml'
-      - 'prod/*.yml'
-
-jobs:
-  deploy:
-    runs-on: self-hosted
-
-    steps:
-      - name: Checkout config repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install yq
-        run: |
-          mkdir -p $HOME/bin
-          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          chmod +x $HOME/bin/yq
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      # Detect changes
-      - name: Detect changed files
-        id: changes
-        run: |
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
-
-          if [ -z "$FILES" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      # Deploy
       - name: Deploy services
         if: steps.changes.outputs.skip != 'true'
         env:
@@ -54,10 +11,17 @@ jobs:
           DATABASE_PASSWORD_PREPROD: ${{ secrets.DATABASE_PASSWORD_PREPROD }}
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
 
-        run: |
-          set -e
+          # token to clone private repos (optional)
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN || github.token }}
 
-          echo "${{ steps.changes.outputs.files }}" | while read FILE; do
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/bin:$PATH"
+
+          FILES="${{ steps.changes.outputs.files }}"
+
+          # iterate safely (no subshell issues)
+          while IFS= read -r FILE || [ -n "$FILE" ]; do
             [ -z "$FILE" ] && continue
 
             echo "============================"
@@ -67,130 +31,126 @@ jobs:
             ENV=$(echo "$FILE" | cut -d'/' -f1)
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
 
-            SERVICE=$(basename $FILE .yml)
-            TAG=$(yq e '.tag' $FILE)
-            REPO=$(yq e '.repo' $FILE)
-            TYPE=$(yq e '.type' $FILE)
+            SERVICE=$(basename "$FILE" .yml)
+            TAG=$(yq e -r '.tag // ""' "$FILE")
+            REPO=$(yq e -r '.repo // ""' "$FILE")
+            TYPE=$(yq e -r '.type // "unknown"' "$FILE")
+            PORT=$(yq e -r '.port // "8080"' "$FILE")            # optional port in YAML
+            RESTART_CMD=$(yq e -r '.restart_command // ""' "$FILE")
 
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
-            mkdir -p "$RELEASE"
+            echo "ENV=$ENV SERVICE=$SERVICE TAG=$TAG REPO=$REPO TYPE=$TYPE PORT=$PORT"
+
+            # prepare dirs
             rm -rf "$WORKSPACE"
+            mkdir -p "$WORKSPACE" "$RELEASE"
 
-            # Clone
-            git clone https://github.com/$REPO "$WORKSPACE"
-            cd "$WORKSPACE"
-            git checkout $TAG
+            # CLONE (support private repos)
+            if [ -n "$REPO" ]; then
+              if [ -n "${GIT_TOKEN:-}" ]; then
+                CLONE_URL="https://x-access-token:${GIT_TOKEN}@github.com/${REPO}.git"
+              else
+                CLONE_URL="https://github.com/${REPO}.git"
+              fi
+              git clone --depth 1 "$CLONE_URL" "$WORKSPACE" || { echo "WARN: shallow clone failed, trying full clone"; rm -rf "$WORKSPACE"; git clone "$CLONE_URL" "$WORKSPACE"; }
+              cd "$WORKSPACE"
+              if [ -n "$TAG" ]; then
+                git fetch --tags || true
+                git checkout "$TAG" 2>/dev/null || echo "WARN: tag $TAG not found, continuing on default branch"
+              fi
+            else
+              echo "ERROR: repo not specified in $FILE. Skipping."
+              continue
+            fi
 
-            # =========================
-            # SAFE ENV RESOLUTION
-            # =========================
-
+            # resolve DB vars from step env (DATABASE_NAME_<ENV>, DATABASE_PASSWORD_<ENV>)
             DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
             DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
 
-            DATABASE_NAME=$(printenv "$DB_NAME_VAR")
-            DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
+            DATABASE_NAME="${!DB_NAME_VAR:-}"
+            DATABASE_PASSWORD="${!DB_PASS_VAR:-}"
 
-            if [ -z "$DATABASE_NAME" ]; then
-              echo "ERROR: Missing DATABASE_NAME for $ENV"
-              exit 1
+            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+              echo "ERROR: Missing DB credentials for $ENV (checked $DB_NAME_VAR $DB_PASS_VAR). Skipping $SERVICE."
+              continue
             fi
 
-            if [ -z "$DATABASE_PASSWORD" ]; then
-              echo "ERROR: Missing DATABASE_PASSWORD for $ENV"
-              exit 1
-            fi
-
-            # =========================
             # BUILD
-            # =========================
-
             echo "Building $SERVICE ($TYPE)"
 
             case "$TYPE" in
               java)
-                mvn -B clean package -DskipTests
-
-                JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
-
+                mvn -B -DskipTests clean package
+                JAR=$(find target -type f -name "*.jar" | grep -v original | head -n 1 || true)
                 if [ -z "$JAR" ]; then
-                  echo "ERROR: JAR not found"
-                  exit 1
+                  echo "ERROR: JAR not found for $SERVICE"
+                  continue
                 fi
-
                 cp "$JAR" "$RELEASE/app.jar"
                 ;;
-
               node)
                 npm ci
                 npm run build || true
-                rsync -a . "$RELEASE"
+                rsync -a --exclude='.git' ./ "$RELEASE/"
                 ;;
-
               python)
                 pip install -r requirements.txt || true
-                rsync -a . "$RELEASE"
+                rsync -a --exclude='.git' ./ "$RELEASE/"
                 ;;
-
               docker)
-                docker build -t $SERVICE:$TAG .
+                docker build -t "${SERVICE}:${TAG}" .
+                ;;
+              *)
+                echo "WARN: unknown type $TYPE; copying workspace as release"
+                rsync -a --exclude='.git' ./ "$RELEASE/"
                 ;;
             esac
 
-            # Switch release (atomic)
+            # Switch release atomically and stop old process (prefer systemd externally)
             ln -sfn "$RELEASE" "$BASE/current"
 
-            # Stop old process safely
+            # stop previous process (best-effort)
             pkill -f "$SERVICE" || true
 
-            # =========================
-            # RUN (SAFE HOT SERVER)
-            # =========================
+            # Prepare runtime.env (optional, also we will export and run)
+            RUNTIME="$RELEASE/runtime.env"
+            : > "$RUNTIME"
+            cat >> "$RUNTIME" <<EOF
+DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER
+DATABASE_NAME=$DATABASE_NAME
+DATABASE_PASSWORD=$DATABASE_PASSWORD
+PORT=$PORT
+ENV=$ENV
+SERVICE=$SERVICE
+EOF
 
+            # RUN: export env and start app (run on the runner machine)
             case "$TYPE" in
               java)
-                nohup java \
-                  -Dserver.port=8080 \
-                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true"\
-                  -Dspring.datasource.username=sa \
-                  -Dspring.datasource.password="$DATABASE_PASSWORD" \
-                  -jar "$RELEASE/app.jar" \
-                  > "$BASE/app.log" 2>&1 &
+                # start with environment variables (Spring reads SPRING_DATASOURCE_*)
+                # prefer exporting SPRING_DATASOURCE_URL or let app use environment keys.
+                nohup bash -lc "export DATABASE_HOST_SERVER='$DATABASE_HOST_SERVER' DATABASE_NAME='$DATABASE_NAME' DATABASE_PASSWORD='$DATABASE_PASSWORD' PORT='$PORT'; exec java -Dserver.port=$PORT -Dspring.datasource.url=\"jdbc:sqlserver://${DATABASE_HOST_SERVER}:1433;databaseName=${DATABASE_NAME};encrypt=false;trustServerCertificate=true\" -Dspring.datasource.username=sa -Dspring.datasource.password='${DATABASE_PASSWORD}' -jar '$RELEASE/app.jar' > '$BASE/app.log' 2>&1 &"
                 ;;
-
               node)
-                nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  node "$RELEASE/dist/index.js" \
-                  > "$BASE/app.log" 2>&1 &
+                nohup bash -lc "export DATABASE_HOST_SERVER='$DATABASE_HOST_SERVER' DATABASE_NAME='$DATABASE_NAME' DATABASE_PASSWORD='$DATABASE_PASSWORD' PORT='$PORT'; exec node '$RELEASE/dist/index.js' > '$BASE/app.log' 2>&1 &"
                 ;;
-
               python)
-                nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  python3 "$RELEASE/app.py" \
-                  > "$BASE/app.log" 2>&1 &
+                nohup bash -lc "export DATABASE_HOST_SERVER='$DATABASE_HOST_SERVER' DATABASE_NAME='$DATABASE_NAME' DATABASE_PASSWORD='$DATABASE_PASSWORD' PORT='$PORT'; exec python3 '$RELEASE/app.py' > '$BASE/app.log' 2>&1 &"
                 ;;
-
               docker)
-                docker rm -f $SERVICE 2>/dev/null || true
-
-                docker run -d \
-                  --name $SERVICE \
-                  --env DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  --env DATABASE_NAME=$DATABASE_NAME \
-                  --env DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  -p 8080:8080 \
-                  $SERVICE:$TAG
+                docker rm -f "$SERVICE" 2>/dev/null || true
+                docker run -d --name "$SERVICE" --env DATABASE_HOST_SERVER="$DATABASE_HOST_SERVER" --env DATABASE_NAME="$DATABASE_NAME" --env DATABASE_PASSWORD="$DATABASE_PASSWORD" -p "${PORT}:8080" "${SERVICE}:${TAG}"
                 ;;
             esac
 
+            # Optional restart_command from YAML executed on runner (or you can scp release to remote server)
+            if [ -n "$RESTART_CMD" ] && [ "$RESTART_CMD" != "null" ]; then
+              echo "Running custom restart command: $RESTART_CMD"
+              bash -lc "$RESTART_CMD" || echo "WARN: restart_command failed"
+            fi
+
             echo "SUCCESS: Deployed $SERVICE ($ENV)"
-          done
+          done <<< "$FILES"

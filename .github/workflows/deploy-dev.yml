@@ -13,7 +13,6 @@ jobs:
     runs-on: self-hosted
 
     steps:
-
       - name: Checkout config repo
         uses: actions/checkout@v4
         with:
@@ -27,12 +26,10 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
 
       # Detect changed files
-
       - name: Detect changed files
-        id: files
+        id: changes
         run: |
-
-          FILES=$(git show --name-only --pretty="" ${{ github.sha }})
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -44,12 +41,9 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       # Deploy
-
       - name: Deploy services
-        if: steps.files.outputs.skip != 'true'
-
+        if: steps.changes.outputs.skip != 'true'
         env:
-
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
 
           DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
@@ -61,16 +55,12 @@ jobs:
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
 
         run: |
-
           set -e
 
-          echo "${{ steps.files.outputs.files }}" | while read FILE; do
-
+          echo "${{ steps.changes.outputs.files }}" | while read FILE; do
             [ -z "$FILE" ] && continue
 
-            echo "=============================="
             echo "Deploying: $FILE"
-            echo "=============================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
@@ -84,147 +74,115 @@ jobs:
             RELEASE="$BASE/releases/$TAG"
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
-            mkdir -p "$BASE/releases"
             mkdir -p "$RELEASE"
-
             rm -rf "$WORKSPACE"
 
-            # CLONE
-
+            # Clone
             git clone https://github.com/$REPO "$WORKSPACE"
-
             cd "$WORKSPACE"
-
-            git fetch --tags
-
             git checkout $TAG
 
-            # ENV FILE (dynamic secrets)
+            # =========================
+            # ENV RESOLUTION (FIXED)
+            # =========================
 
+            DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
+            DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
+
+            DATABASE_NAME=$(printenv "$DB_NAME_VAR")
+            DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
+
+            if [ -z "$DATABASE_NAME" ]; then
+              echo "Missing DB name for env: $ENV"
+              exit 1
+            fi
+
+            # Build env file
             ENV_FILE="$BASE/runtime.env"
-
             : > "$ENV_FILE"
 
-            for VAR in $(yq e '.env[]' $FILE 2>/dev/null); do
+            echo "DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER" >> "$ENV_FILE"
+            echo "DATABASE_NAME=$DATABASE_NAME" >> "$ENV_FILE"
+            echo "DATABASE_PASSWORD=$DATABASE_PASSWORD" >> "$ENV_FILE"
 
-              SECRET_NAME="${VAR}_${ENV_UPPER}"
-
-              VALUE=$(printenv "$SECRET_NAME")
-
-              if [ -z "$VALUE" ]; then
-                VALUE=$(printenv "$VAR")
-              fi
-
-              if [ -n "$VALUE" ]; then
-                echo "$VAR=$VALUE" >> "$ENV_FILE"
-              else
-                echo "Missing secret: $SECRET_NAME"
-              fi
-
-            done
-
+            # =========================
             # BUILD
+            # =========================
 
             echo "Building $SERVICE ($TYPE)"
 
             case "$TYPE" in
-
               java)
-
                 mvn -B clean package -DskipTests
 
                 JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
-
                 if [ -z "$JAR" ]; then
                   echo "JAR not found"
                   exit 1
                 fi
 
                 cp "$JAR" "$RELEASE/app.jar"
-
                 ;;
 
               node)
-
                 npm ci
-
                 npm run build || true
-
                 rsync -a . "$RELEASE"
-
                 ;;
 
               python)
-
                 pip install -r requirements.txt || true
-
                 rsync -a . "$RELEASE"
-
                 ;;
 
               docker)
-
                 docker build -t $SERVICE:$TAG .
-
                 ;;
-
             esac
 
-            # SWITCH RELEASE
-
+            # Switch release
             ln -sfn "$RELEASE" "$BASE/current"
 
             pkill -f "$SERVICE" || true
 
-            # LOAD ENV
-
+            # Load env
             set -a
             source "$ENV_FILE"
             set +a
 
+            # =========================
             # RUN
+            # =========================
 
             case "$TYPE" in
-
               java)
-
                 nohup java \
                   -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                  -Dspring.datasource.username=sa \
-                  -Dspring.datasource.password=$DATABASE_PASSWORD \
+                  -Dspring.datasource.username="$DATABASE_NAME" \
+                  -Dspring.datasource.password="$DATABASE_PASSWORD" \
                   -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
-
                 ;;
 
               node)
-
                 nohup env $(cat "$ENV_FILE" | xargs) node "$RELEASE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
-
                 ;;
 
               python)
-
                 nohup env $(cat "$ENV_FILE" | xargs) python3 "$RELEASE/app.py" \
                   > "$BASE/app.log" 2>&1 &
-
                 ;;
 
               docker)
-
                 docker rm -f $SERVICE 2>/dev/null || true
-
                 docker run -d \
                   --name $SERVICE \
                   --env-file "$ENV_FILE" \
                   -p 0:8080 \
                   $SERVICE:$TAG
-
                 ;;
-
             esac
 
             echo "Deployed: $SERVICE ($ENV)"
-
           done

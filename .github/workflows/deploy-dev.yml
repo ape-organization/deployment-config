@@ -18,14 +18,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      # =========================
+      # Install yq (pinned version)
+      # =========================
       - name: Install yq
         run: |
           mkdir -p $HOME/bin
-          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
+      # =========================
       # Detect changes
+      # =========================
       - name: Detect changed files
         id: changes
         run: |
@@ -40,7 +45,9 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      # =========================
       # Deploy
+      # =========================
       - name: Deploy services
         if: steps.changes.outputs.skip != 'true'
         env:
@@ -53,6 +60,8 @@ jobs:
           DATABASE_PASSWORD_DEV: ${{ secrets.DATABASE_PASSWORD_DEV }}
           DATABASE_PASSWORD_PREPROD: ${{ secrets.DATABASE_PASSWORD_PREPROD }}
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
+
+          DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
 
         run: |
           set -e
@@ -79,35 +88,30 @@ jobs:
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
 
+            # =========================
             # Clone
+            # =========================
             git clone https://github.com/$REPO "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout $TAG
 
             # =========================
-            # SAFE ENV RESOLUTION
+            # Resolve DB per ENV
             # =========================
-
             DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
             DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
 
             DATABASE_NAME=$(printenv "$DB_NAME_VAR")
             DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
 
-            if [ -z "$DATABASE_NAME" ]; then
-              echo "ERROR: Missing DATABASE_NAME for $ENV"
-              exit 1
-            fi
-
-            if [ -z "$DATABASE_PASSWORD" ]; then
-              echo "ERROR: Missing DATABASE_PASSWORD for $ENV"
+            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+              echo "ERROR: Missing DB credentials for $ENV"
               exit 1
             fi
 
             # =========================
             # BUILD
             # =========================
-
             echo "Building $SERVICE ($TYPE)"
 
             case "$TYPE" in
@@ -140,25 +144,31 @@ jobs:
                 ;;
             esac
 
-            # Switch release (atomic)
+            # =========================
+            # Switch release (safe symlink)
+            # =========================
             ln -sfn "$RELEASE" "$BASE/current"
 
-            # Stop old process safely
-            pkill -f "$SERVICE" || true
+            # =========================
+            # STOP OLD PROCESS SAFELY
+            # =========================
+            if [ -f "$BASE/app.pid" ]; then
+              kill $(cat "$BASE/app.pid") || true
+            fi
 
             # =========================
-            # RUN (SAFE HOT SERVER)
+            # RUN
             # =========================
-
             case "$TYPE" in
               java)
-                nohup java \
-                  -Dserver.port=8080 \
-                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true"\
-                  -Dspring.datasource.username=sa \
-                  -Dspring.datasource.password="$DATABASE_PASSWORD" \
-                  -jar "$RELEASE/app.jar" \
+                nohup env \
+                  SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                  SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
+                  SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
+                  java -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
+
+                echo $! > "$BASE/app.pid"
                 ;;
 
               node)
@@ -168,6 +178,8 @@ jobs:
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   node "$RELEASE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
+
+                echo $! > "$BASE/app.pid"
                 ;;
 
               python)
@@ -177,6 +189,8 @@ jobs:
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   python3 "$RELEASE/app.py" \
                   > "$BASE/app.log" 2>&1 &
+
+                echo $! > "$BASE/app.pid"
                 ;;
 
               docker)

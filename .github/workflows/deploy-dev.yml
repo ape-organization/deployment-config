@@ -154,7 +154,7 @@ jobs:
               java)
                 nohup java \
                   -Dserver.port=8080 \
-                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true"\
                   -Dspring.datasource.username=sa \
                   -Dspring.datasource.password="$DATABASE_PASSWORD" \
                   -jar "$RELEASE/app.jar" \

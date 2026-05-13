@@ -25,7 +25,7 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # Detect changed files
+      # Detect changes
       - name: Detect changed files
         id: changes
         run: |
@@ -60,7 +60,9 @@ jobs:
           echo "${{ steps.changes.outputs.files }}" | while read FILE; do
             [ -z "$FILE" ] && continue
 
+            echo "============================"
             echo "Deploying: $FILE"
+            echo "============================"
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
@@ -83,7 +85,7 @@ jobs:
             git checkout $TAG
 
             # =========================
-            # ENV RESOLUTION (FIXED)
+            # SAFE ENV RESOLUTION
             # =========================
 
             DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
@@ -93,17 +95,14 @@ jobs:
             DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
 
             if [ -z "$DATABASE_NAME" ]; then
-              echo "Missing DB name for env: $ENV"
+              echo "ERROR: Missing DATABASE_NAME for $ENV"
               exit 1
             fi
 
-            # Build env file
-            ENV_FILE="$BASE/runtime.env"
-            : > "$ENV_FILE"
-
-            echo "DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER" >> "$ENV_FILE"
-            echo "DATABASE_NAME=$DATABASE_NAME" >> "$ENV_FILE"
-            echo "DATABASE_PASSWORD=$DATABASE_PASSWORD" >> "$ENV_FILE"
+            if [ -z "$DATABASE_PASSWORD" ]; then
+              echo "ERROR: Missing DATABASE_PASSWORD for $ENV"
+              exit 1
+            fi
 
             # =========================
             # BUILD
@@ -116,8 +115,9 @@ jobs:
                 mvn -B clean package -DskipTests
 
                 JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
+
                 if [ -z "$JAR" ]; then
-                  echo "JAR not found"
+                  echo "ERROR: JAR not found"
                   exit 1
                 fi
 
@@ -140,49 +140,57 @@ jobs:
                 ;;
             esac
 
-            # Switch release
+            # Switch release (atomic)
             ln -sfn "$RELEASE" "$BASE/current"
 
+            # Stop old process safely
             pkill -f "$SERVICE" || true
 
-            # Load env
-            set -a
-            source "$ENV_FILE"
-            set +a
-
             # =========================
-            # RUN
+            # RUN (SAFE HOT SERVER)
             # =========================
 
             case "$TYPE" in
               java)
                 nohup java \
+                  -Dserver.port=8080 \
                   -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                  -Dspring.datasource.username="$DATABASE_NAME" \
+                  -Dspring.datasource.username=sa \
                   -Dspring.datasource.password="$DATABASE_PASSWORD" \
                   -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               node)
-                nohup env $(cat "$ENV_FILE" | xargs) node "$RELEASE/dist/index.js" \
+                nohup env \
+                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  node "$RELEASE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               python)
-                nohup env $(cat "$ENV_FILE" | xargs) python3 "$RELEASE/app.py" \
+                nohup env \
+                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  python3 "$RELEASE/app.py" \
                   > "$BASE/app.log" 2>&1 &
                 ;;
 
               docker)
                 docker rm -f $SERVICE 2>/dev/null || true
+
                 docker run -d \
                   --name $SERVICE \
-                  --env-file "$ENV_FILE" \
-                  -p 0:8080 \
+                  --env DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  --env DATABASE_NAME=$DATABASE_NAME \
+                  --env DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  -p 8080:8080 \
                   $SERVICE:$TAG
                 ;;
             esac
 
-            echo "Deployed: $SERVICE ($ENV)"
+            echo "SUCCESS: Deployed $SERVICE ($ENV)"
           done

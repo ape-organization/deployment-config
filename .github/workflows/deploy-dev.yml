@@ -13,6 +13,7 @@ jobs:
     runs-on: self-hosted
 
     steps:
+
       - name: Checkout config repo
         uses: actions/checkout@v4
         with:
@@ -25,10 +26,11 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
+      # Detect changed files
+
       - name: Detect changed files
         id: files
         run: |
-          git fetch origin main
 
           FILES=$(git show --name-only --pretty="" ${{ github.sha }})
 
@@ -41,12 +43,23 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      # Deploy
+
       - name: Deploy services
         if: steps.files.outputs.skip != 'true'
+
         env:
+
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-          DATABASE_NAME: ${{ secrets.DATABASE_NAME_DEV }}
-          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD_DEV }}
+
+          DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
+          DATABASE_NAME_PREPROD: ${{ secrets.DATABASE_NAME_PREPROD }}
+          DATABASE_NAME_PROD: ${{ secrets.DATABASE_NAME_PROD }}
+
+          DATABASE_PASSWORD_DEV: ${{ secrets.DATABASE_PASSWORD_DEV }}
+          DATABASE_PASSWORD_PREPROD: ${{ secrets.DATABASE_PASSWORD_PREPROD }}
+          DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
+
         run: |
 
           set -e
@@ -60,6 +73,7 @@ jobs:
             echo "=============================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
+            ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
 
             SERVICE=$(basename $FILE .yml)
             TAG=$(yq e '.tag' $FILE)
@@ -71,121 +85,146 @@ jobs:
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
             mkdir -p "$BASE/releases"
+            mkdir -p "$RELEASE"
+
             rm -rf "$WORKSPACE"
 
-            #################################
-            # CLONE INTO WORKSPACE
-            #################################
+            # CLONE
 
             git clone https://github.com/$REPO "$WORKSPACE"
+
             cd "$WORKSPACE"
+
+            git fetch --tags
+
             git checkout $TAG
 
-            #################################
-            # ENV FILE
-            #################################
+            # ENV FILE (dynamic secrets)
 
             ENV_FILE="$BASE/runtime.env"
+
             : > "$ENV_FILE"
 
             for VAR in $(yq e '.env[]' $FILE 2>/dev/null); do
-              VALUE=$(printenv $VAR || true)
+
+              SECRET_NAME="${VAR}_${ENV_UPPER}"
+
+              VALUE=$(printenv "$SECRET_NAME")
+
+              if [ -z "$VALUE" ]; then
+                VALUE=$(printenv "$VAR")
+              fi
 
               if [ -n "$VALUE" ]; then
                 echo "$VAR=$VALUE" >> "$ENV_FILE"
               else
-                echo "⚠ Missing: $VAR"
+                echo "Missing secret: $SECRET_NAME"
               fi
+
             done
 
-            #################################
             # BUILD
-            #################################
 
             echo "Building $SERVICE ($TYPE)"
 
             case "$TYPE" in
 
               java)
-                mvn clean package -DskipTests
+
+                mvn -B clean package -DskipTests
+
+                JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
+
+                if [ -z "$JAR" ]; then
+                  echo "JAR not found"
+                  exit 1
+                fi
+
+                cp "$JAR" "$RELEASE/app.jar"
+
                 ;;
 
               node)
-                npm install
+
+                npm ci
+
                 npm run build || true
+
+                rsync -a . "$RELEASE"
+
                 ;;
 
               python)
+
                 pip install -r requirements.txt || true
+
+                rsync -a . "$RELEASE"
+
                 ;;
 
               docker)
+
                 docker build -t $SERVICE:$TAG .
+
                 ;;
+
             esac
 
-            #################################
-            # JAVA ARTIFACT FIX (IMPORTANT)
-            #################################
-
-            if [ "$TYPE" = "java" ]; then
-
-              JAR=$(find target -type f -name "*.jar" | grep -v original | head -n 1)
-
-              if [ -z "$JAR" ]; then
-                echo "❌ Build failed: JAR not found"
-                exit 1
-              fi
-
-              cp "$JAR" "$RELEASE/app.jar"
-            fi
-
-            #################################
             # SWITCH RELEASE
-            #################################
 
             ln -sfn "$RELEASE" "$BASE/current"
+
             pkill -f "$SERVICE" || true
 
-            #################################
-            # RUN
-            #################################
+            # LOAD ENV
 
             set -a
             source "$ENV_FILE"
             set +a
 
+            # RUN
+
             case "$TYPE" in
 
               java)
+
                 nohup java \
                   -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
                   -Dspring.datasource.username=sa \
                   -Dspring.datasource.password=$DATABASE_PASSWORD \
                   -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
+
                 ;;
 
               node)
-                nohup env $(cat "$ENV_FILE" | xargs) node "$WORKSPACE/dist/index.js" \
+
+                nohup env $(cat "$ENV_FILE" | xargs) node "$RELEASE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
+
                 ;;
 
               python)
-                nohup env $(cat "$ENV_FILE" | xargs) python3 "$WORKSPACE/app.py" \
+
+                nohup env $(cat "$ENV_FILE" | xargs) python3 "$RELEASE/app.py" \
                   > "$BASE/app.log" 2>&1 &
+
                 ;;
 
               docker)
+
                 docker rm -f $SERVICE 2>/dev/null || true
+
                 docker run -d \
                   --name $SERVICE \
                   --env-file "$ENV_FILE" \
                   -p 0:8080 \
                   $SERVICE:$TAG
+
                 ;;
+
             esac
 
-            echo "✅ Deployed: $SERVICE ($ENV)"
+            echo "Deployed: $SERVICE ($ENV)"
 
           done

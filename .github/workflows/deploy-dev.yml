@@ -48,11 +48,13 @@ jobs:
           DATABASE_NAME_PREPROD: ${{ secrets.DATABASE_NAME_PREPROD }}
           DATABASE_NAME_PROD: ${{ secrets.DATABASE_NAME_PROD }}
 
+          DATABASE_USERNAME_DEV: ${{ secrets.DATABASE_USERNAME_DEV }}
+          DATABASE_USERNAME_PREPROD: ${{ secrets.DATABASE_USERNAME_PREPROD }}
+          DATABASE_USERNAME_PROD: ${{ secrets.DATABASE_USERNAME_PROD }}
+
           DATABASE_PASSWORD_DEV: ${{ secrets.DATABASE_PASSWORD_DEV }}
           DATABASE_PASSWORD_PREPROD: ${{ secrets.DATABASE_PASSWORD_PREPROD }}
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
-
-
 
         run: |
           set -e
@@ -68,6 +70,7 @@ jobs:
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
 
             SERVICE=$(basename $FILE .yml)
+
             TAG=$(yq e '.tag' $FILE)
             REPO=$(yq e '.repo' $FILE)
             TYPE=$(yq e '.type' $FILE)
@@ -83,17 +86,21 @@ jobs:
             cd "$WORKSPACE"
             git checkout $TAG
 
-            DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
+            # ===== FIXED ENV RESOLUTION =====
+            DB_NAME_VAR="DATABASE_USERNAME_${ENV_UPPER}"
+            DB_USER_VAR="DATABASE_USERNAME_${ENV_UPPER}"
             DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
 
             DATABASE_NAME=$(printenv "$DB_NAME_VAR")
-            DATABASE_USERNAME=$(printenv "$DB_NAME_VAR")
+            DATABASE_USERNAME=$(printenv "$DB_USER_VAR")
             DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
 
-            if [ -z "$DATABASE_NAME" ] && [ -z "$DATABASE_PASSWORD" ]; then
+            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"
               exit 1
             fi
+
+            echo "DB DEBUG => HOST=$DATABASE_HOST_SERVER NAME=$DATABASE_NAME USER=$DATABASE_USERNAME"
 
             echo "Building $SERVICE ($TYPE)"
 
@@ -129,24 +136,23 @@ jobs:
 
             ln -sfn "$RELEASE" "$BASE/current"
 
+            # stop old process safely
             if [ -f "$BASE/app.pid" ]; then
               kill $(cat "$BASE/app.pid") || true
             fi
-            echo "DEBUG: HOST=[${DATABASE_HOST_SERVER}] NAME=[${DATABASE_NAME}] USER=[${DATABASE_USERNAME}]"
+
             case "$TYPE" in
               java)
-              setsid env \
-                DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                DATABASE_NAME=$DATABASE_NAME \
-                DATABASE_USERNAME=$DATABASE_USERNAME \
-                DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                DB_PORT=1433 \
-                java -jar "$RELEASE/app.jar" \
-                > "$BASE/app.log" 2>&1 &
-              
-              PID=$!
-              disown $PID
-              echo $PID > "$BASE/app.pid"
+                nohup env \
+                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_USERNAME=$DATABASE_USERNAME \
+                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  DB_PORT=1433 \
+                  java -jar "$RELEASE/app.jar" \
+                  > "$BASE/app.log" 2>&1 &
+
+                echo $! > "$BASE/app.pid"
                 ;;
 
               node)
@@ -178,6 +184,7 @@ jobs:
                   --name $SERVICE \
                   --env DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
                   --env DATABASE_NAME=$DATABASE_NAME \
+                  --env DATABASE_USERNAME=$DATABASE_USERNAME \
                   --env DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   -p 8080:8080 \
                   $SERVICE:$TAG

@@ -162,7 +162,7 @@ jobs:
             case "$TYPE" in
                 java)
                 nohup java \
-                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;database=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
                   -Dspring.datasource.username="$DATABASE_USERNAME" \
                   -Dspring.datasource.password="$DATABASE_PASSWORD" \
                   -jar "$RELEASE/app.jar" \

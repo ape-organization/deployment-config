@@ -161,11 +161,13 @@ jobs:
             # =========================
             case "$TYPE" in
                 java)
-                nohup java \
-                  -Dspring.datasource.url="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                  -Dspring.datasource.username="$DATABASE_USERNAME" \
-                  -Dspring.datasource.password="$DATABASE_PASSWORD" \
-                  -jar "$RELEASE/app.jar" \
+                nohup env \
+                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_USERNAME=$DATABASE_USERNAME \
+                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  DB_PORT=1433 \
+                  java -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
 
 

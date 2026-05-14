@@ -131,7 +131,7 @@ jobs:
             if [ -f "$BASE/app.pid" ]; then
               kill $(cat "$BASE/app.pid") || true
             fi
-
+            echo "DEBUG: HOST=[${DATABASE_HOST_SERVER}] NAME=[${DATABASE_NAME}] USER=[${DATABASE_USERNAME}]"
             case "$TYPE" in
               java)
               setsid env \

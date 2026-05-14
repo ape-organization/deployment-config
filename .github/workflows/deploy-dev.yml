@@ -182,9 +182,9 @@ jobs:
               java)
             
                 nohup env \
-                  SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME" \
-                  SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
-                  SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
+                SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
+                SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
                   DB_PORT=1433 \
                   java -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &

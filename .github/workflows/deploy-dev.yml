@@ -180,16 +180,15 @@ jobs:
             case "$TYPE" in
 
               java)
-
+            
                 nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_USERNAME=$DATABASE_USERNAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME" \
+                  SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
+                  SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
                   DB_PORT=1433 \
                   java -jar "$RELEASE/app.jar" \
                   > "$BASE/app.log" 2>&1 &
-
+            
                 echo $! > "$BASE/app.pid"
                 ;;
 

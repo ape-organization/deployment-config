@@ -143,8 +143,10 @@ jobs:
                 DB_PORT=1433 \
                 java -jar "$RELEASE/app.jar" \
                 > "$BASE/app.log" 2>&1 &
-
-                echo $! > "$BASE/app.pid"
+              
+              PID=$!
+              disown $PID
+              echo $PID > "$BASE/app.pid"
                 ;;
 
               node)

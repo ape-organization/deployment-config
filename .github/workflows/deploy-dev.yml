@@ -13,10 +13,12 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout config repo
+
+      - name: Checkout Config Repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
 
       - name: Install yq
         run: |
@@ -25,9 +27,11 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Detect changed files
+
+      - name: Detect Changed Files
         id: changes
         run: |
+
           FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
 
           if [ -z "$FILES" ]; then
@@ -39,9 +43,11 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy services
+
+      - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
         env:
+
           DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
 
           DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
@@ -57,14 +63,16 @@ jobs:
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
 
         run: |
+
           set -e
 
           while IFS= read -r FILE; do
+
             [ -z "$FILE" ] && continue
 
-            echo "============================"
-            echo "Deploying: $FILE"
-            echo "============================"
+            echo "=========================="
+            echo "Deploying $FILE"
+            echo "=========================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
@@ -75,37 +83,54 @@ jobs:
             REPO=$(yq e '.repo' $FILE)
             TYPE=$(yq e '.type' $FILE)
 
+            echo "ENV: $ENV"
+            echo "SERVICE: $SERVICE"
+            echo "TAG: $TAG"
+            echo "REPO: $REPO"
+
+
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
+
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
 
-            git clone https://github.com/$REPO "$WORKSPACE"
-            cd "$WORKSPACE"
-            git checkout $TAG
 
-            # ===== FIXED ENV RESOLUTION =====
+            echo "Cloning repo..."
+
+            git clone https://github.com/$REPO "$WORKSPACE"
+
+            cd "$WORKSPACE"
+
+            git checkout "$TAG"
+
+
+            echo "Resolving database variables..."
+
             DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
             DB_USER_VAR="DATABASE_NAME_${ENV_UPPER}"
             DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
 
-            DATABASE_NAME=$(printenv "$DB_NAME_VAR")
-            DATABASE_USERNAME=$(printenv "$DB_USER_VAR")
-            DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
+            DATABASE_NAME=${!DB_NAME_VAR}
+            DATABASE_USERNAME=${!DB_USER_VAR}
+            DATABASE_PASSWORD=${!DB_PASS_VAR}
+
 
             if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"
               exit 1
             fi
 
-            echo "DB DEBUG => HOST=$DATABASE_HOST_SERVER NAME=$DATABASE_NAME USER=$DATABASE_USERNAME"
 
-            echo "Building $SERVICE ($TYPE)"
+            echo "Building service..."
+
 
             case "$TYPE" in
+
               java)
+
                 mvn -B clean package -DskipTests
 
                 JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
@@ -119,30 +144,43 @@ jobs:
                 ;;
 
               node)
+
                 npm ci
                 npm run build || true
                 rsync -a . "$RELEASE"
                 ;;
 
               python)
+
                 pip install -r requirements.txt || true
                 rsync -a . "$RELEASE"
                 ;;
 
               docker)
+
                 docker build -t $SERVICE:$TAG .
                 ;;
+
             esac
+
+
+            echo "Updating current release..."
 
             ln -sfn "$RELEASE" "$BASE/current"
 
-            # stop old process safely
+
             if [ -f "$BASE/app.pid" ]; then
               kill $(cat "$BASE/app.pid") || true
             fi
 
+
+            echo "Starting service..."
+
+
             case "$TYPE" in
+
               java)
+
                 nohup env \
                   DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
                   DATABASE_NAME=$DATABASE_NAME \
@@ -155,10 +193,13 @@ jobs:
                 echo $! > "$BASE/app.pid"
                 ;;
 
+
               node)
+
                 nohup env \
                   DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
                   DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_USERNAME=$DATABASE_USERNAME \
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   node "$RELEASE/dist/index.js" \
                   > "$BASE/app.log" 2>&1 &
@@ -166,10 +207,13 @@ jobs:
                 echo $! > "$BASE/app.pid"
                 ;;
 
+
               python)
+
                 nohup env \
                   DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
                   DATABASE_NAME=$DATABASE_NAME \
+                  DATABASE_USERNAME=$DATABASE_USERNAME \
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   python3 "$RELEASE/app.py" \
                   > "$BASE/app.log" 2>&1 &
@@ -177,20 +221,25 @@ jobs:
                 echo $! > "$BASE/app.pid"
                 ;;
 
+
               docker)
+
                 docker rm -f $SERVICE 2>/dev/null || true
 
                 docker run -d \
                   --name $SERVICE \
-                  --env DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  --env DATABASE_NAME=$DATABASE_NAME \
-                  --env DATABASE_USERNAME=$DATABASE_USERNAME \
-                  --env DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   -p 8080:8080 \
+                  -e DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  -e DATABASE_NAME=$DATABASE_NAME \
+                  -e DATABASE_USERNAME=$DATABASE_USERNAME \
+                  -e DATABASE_PASSWORD=$DATABASE_PASSWORD \
                   $SERVICE:$TAG
                 ;;
+
             esac
 
-            echo "SUCCESS: Deployed $SERVICE ($ENV)"
+
+            echo "SUCCESS: $SERVICE deployed to $ENV"
+
 
           done <<< "${{ steps.changes.outputs.files }}"

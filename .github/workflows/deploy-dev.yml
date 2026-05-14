@@ -89,7 +89,7 @@ jobs:
             DATABASE_NAME=$(printenv "$DB_NAME_VAR")
             DATABASE_PASSWORD=$(printenv "$DB_PASS_VAR")
 
-            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+            if [ -z "$DATABASE_NAME" ] && [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"
               exit 1
             fi

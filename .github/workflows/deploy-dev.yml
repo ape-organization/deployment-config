@@ -235,6 +235,25 @@ jobs:
                   $SERVICE:$TAG
                 ;;
 
+              angular)
+              
+                npm ci
+              
+                npm run build -- --configuration production
+              
+                BUILD_PATH=$(find dist -maxdepth 2 -type d | head -n 1)
+              
+                if [ -z "$BUILD_PATH" ]; then
+                  echo "ERROR: Angular build not found"
+                  exit 1
+                fi
+              
+                rm -rf "$RELEASE"
+                mkdir -p "$RELEASE"
+              
+                cp -r "$BUILD_PATH"/* "$RELEASE"
+              
+                ;;
             esac
 
 

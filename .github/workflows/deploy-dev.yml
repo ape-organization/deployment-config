@@ -237,7 +237,7 @@ jobs:
 
               angular)
               
-                npm ci
+                npm install
               
                 npm run build -- --configuration production
               

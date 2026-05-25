@@ -89,7 +89,7 @@ jobs:
             printf 'DB_USER=%q\n' "$DATABASE_USERNAME" >> "$file"
             printf 'DB_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
 
-            printf 'SPRING_DATASOURCE_URL=%q\n' "jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" >> "$file"
+            printf 'SPRING_DATASOURCE_URL=%q\n' "jdbc:sqlserver://$SPRING_DATASOURCE_URL:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" >> "$file"
             printf 'SPRING_DATASOURCE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
             printf 'SPRING_DATASOURCE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
 

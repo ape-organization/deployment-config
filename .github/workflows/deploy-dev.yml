@@ -82,7 +82,7 @@ jobs:
           DB_NAME=$DATABASE_NAME
           DB_USER=$DATABASE_USERNAME
           DB_PASSWORD=$DATABASE_PASSWORD
-          SPRING_DATASOURCE_URL=jdbc:sqlserver://$SPRING_DATASOURCE_URL:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true
+          SPRING_DATASOURCE_URL=jdbc:sqlserver://$SPRING_DATASOURCE_URL:1433;databaseName=$DATABASE_NAME;encrypt=true;trustServerCertificate=true
           SPRING_DATASOURCE_USERNAME=$DATABASE_USERNAME
           SPRING_DATASOURCE_PASSWORD=$DATABASE_PASSWORD
           EOF

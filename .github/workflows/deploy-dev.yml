@@ -77,13 +77,13 @@ jobs:
             printf 'SERVICE_NAME=%q\n' "$SERVICE" >> "$file"
             printf 'SERVER_PORT=%q\n' "$APP_PORT" >> "$file"
 
-            printf 'DATABASE_HOST_SERVER=%q\n' "$DATABASE_HOST_SERVER" >> "$file"
+            printf 'SPRING_DATASOURCE_URL=%q\n' "$SPRING_DATASOURCE_URL" >> "$file"
             printf 'DATABASE_PORT=%q\n' "1433" >> "$file"
             printf 'DATABASE_NAME=%q\n' "$DATABASE_NAME" >> "$file"
             printf 'DATABASE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
             printf 'DATABASE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
 
-            printf 'DB_HOST=%q\n' "$DATABASE_HOST_SERVER" >> "$file"
+            printf 'DB_HOST=%q\n' "$SPRING_DATASOURCE_URL" >> "$file"
             printf 'DB_PORT=%q\n' "1433" >> "$file"
             printf 'DB_NAME=%q\n' "$DATABASE_NAME" >> "$file"
             printf 'DB_USER=%q\n' "$DATABASE_USERNAME" >> "$file"
@@ -150,7 +150,7 @@ jobs:
             DATABASE_PASSWORD="${!DB_PASS_VAR:-}"
             APP_PORT="${!APP_PORT_VAR:-8080}"
 
-            if [ -z "${DATABASE_HOST_SERVER:-}" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+            if [ -z "${SPRING_DATASOURCE_URL:-}" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing deployment variables for $ENV"
               exit 1
             fi

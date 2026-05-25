@@ -19,6 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install yq
+        shell: bash
         run: |
           mkdir -p "$HOME/bin"
           wget -qO "$HOME/bin/yq" https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
@@ -50,12 +51,11 @@ jobs:
           APP_PORT_PREPROD: ${{ vars.APP_PORT_PREPROD }}
           APP_PORT_PROD: ${{ vars.APP_PORT_PROD }}
 
-          # Sensitive values: keep these in GitHub Secrets
           DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
           DATABASE_NAME_PREPROD: ${{ secrets.DATABASE_NAME_PREPROD }}
           DATABASE_NAME_PROD: ${{ secrets.DATABASE_NAME_PROD }}
 
-          DATABASE_USERNAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
+          DATABASE_USERNAME_DEV: ${{ secrets.DATABASE_USERNAME_DEV }}
           DATABASE_USERNAME_PREPROD: ${{ secrets.DATABASE_USERNAME_PREPROD }}
           DATABASE_USERNAME_PROD: ${{ secrets.DATABASE_USERNAME_PROD }}
 
@@ -67,202 +67,210 @@ jobs:
           set -Eeuo pipefail
 
           write_env_file() {
-            local file="$1"
+            local target_file="$1"
 
-            mkdir -p "$(dirname "$file")"
+            mkdir -p "$(dirname "$target_file")"
             umask 177
-            : > "$file"
 
-            printf 'APP_ENV=%q\n' "$ENV" >> "$file"
-            printf 'SERVICE_NAME=%q\n' "$SERVICE" >> "$file"
-            printf 'SERVER_PORT=%q\n' "$APP_PORT" >> "$file"
+            cat > "$target_file" <<EOF
+  APP_ENV=$ENV
+  SERVICE_NAME=$SERVICE
+  SPRING_DATASOURCE_URL=$SPRING_DATASOURCE_URL
+  DATABASE_PORT=1433
+  DATABASE_NAME=$DATABASE_NAME
+  DATABASE_USERNAME=$DATABASE_USERNAME
+  DATABASE_PASSWORD=$DATABASE_PASSWORD
+  DB_HOST=$SPRING_DATASOURCE_URL
+  DB_PORT=1433
+  DB_NAME=$DATABASE_NAME
+  DB_USER=$DATABASE_USERNAME
+  DB_PASSWORD=$DATABASE_PASSWORD
+  SPRING_DATASOURCE_URL=jdbc:sqlserver://$SPRING_DATASOURCE_URL:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true
+  SPRING_DATASOURCE_USERNAME=$DATABASE_USERNAME
+  SPRING_DATASOURCE_PASSWORD=$DATABASE_PASSWORD
+  EOF
+  
+  chmod 600 "$target_file"
+}
 
-            printf 'SPRING_DATASOURCE_URL=%q\n' "$SPRING_DATASOURCE_URL" >> "$file"
-            printf 'DATABASE_PORT=%q\n' "1433" >> "$file"
-            printf 'DATABASE_NAME=%q\n' "$DATABASE_NAME" >> "$file"
-            printf 'DATABASE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
-            printf 'DATABASE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+  load_env_file() {
+  local env_file="$1"
+  set -a
+  . "$env_file"
+  set +a
+}
 
-            printf 'DB_HOST=%q\n' "$SPRING_DATASOURCE_URL" >> "$file"
-            printf 'DB_PORT=%q\n' "1433" >> "$file"
-            printf 'DB_NAME=%q\n' "$DATABASE_NAME" >> "$file"
-            printf 'DB_USER=%q\n' "$DATABASE_USERNAME" >> "$file"
-            printf 'DB_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+  while IFS= read -r FILE; do
+  [ -z "$FILE" ] && continue
+  
+  echo "=========================="
+  echo "Deploying $FILE"
+  echo "=========================="
+  
+  ENV=$(echo "$FILE" | cut -d'/' -f1)
+  ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+  SERVICE=$(basename "$FILE" .yml)
+  
+  TAG=$(yq e '.tag' "$FILE")
+  REPO=$(yq e '.repo' "$FILE")
+  TYPE=$(yq e '.type' "$FILE")
 
-            printf 'SPRING_DATASOURCE_URL=%q\n' "jdbc:sqlserver://$SPRING_DATASOURCE_URL:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" >> "$file"
-            printf 'SPRING_DATASOURCE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
-            printf 'SPRING_DATASOURCE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+echo "ENV: $ENV"
+echo "SERVICE: $SERVICE"
+echo "TAG: $TAG"
+echo "REPO: $REPO"
+echo "TYPE: $TYPE"
+  
+  BASE="/home/Center-management/$ENV/$SERVICE"
+  RELEASE="$BASE/releases/$TAG"
+  WORKSPACE="/tmp/build/$SERVICE-$TAG"
+  SERVER_ENV_FILE="$BASE/.env"
+  RELEASE_ENV_FILE="$RELEASE/.env"
+  
+  mkdir -p "$BASE" "$BASE/releases" "$RELEASE"
+  rm -rf "$WORKSPACE"
+  
+  echo "Cloning repo..."
+  git clone "https://github.com/$REPO" "$WORKSPACE"
+  
+  cd "$WORKSPACE"
+  git checkout "$TAG"
+  
+  echo "Resolving database variables..."
+  
+  DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
+  DB_USER_VAR="DATABASE_USERNAME_${ENV_UPPER}"
+  DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
+  
+  DATABASE_NAME="${!DB_NAME_VAR:-}"
+  DATABASE_USERNAME="${!DB_USER_VAR:-}"
+  DATABASE_PASSWORD="${!DB_PASS_VAR:-}"
+  
+  if [ -z "${SPRING_DATASOURCE_URL:-}" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+echo "ERROR: Missing DB credentials for $ENV"
+  exit 1
+  fi
+  
+  echo "Building service..."
+  
+  case "$TYPE" in
+  java)
+  mvn -B clean package -DskipTests
+  
+  JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
+  
+  if [ -z "$JAR" ]; then
+echo "ERROR: JAR not found"
+  exit 1
+  fi
+  
+  cp "$JAR" "$RELEASE/app.jar"
+  ;;
+  
+  node)
+  npm ci
+  npm run build || true
+  rsync -a --delete --exclude '.git' ./ "$RELEASE/"
+  ;;
+  
+  python)
+  pip install -r requirements.txt || true
+  rsync -a --delete --exclude '.git' ./ "$RELEASE/"
+  ;;
+  
+  docker)
+  docker build -t "$SERVICE:$TAG" .
+  ;;
+  
+  angular)
+  npm ci
+  npm run build -- --configuration production
+  
+  BUILD_PATH=$(find dist -mindepth 1 -maxdepth 2 -type d | head -n 1)
+  
+  if [ -z "$BUILD_PATH" ]; then
+echo "ERROR: Angular build not found"
+  exit 1
+  fi
+  
+  rm -rf "$RELEASE"
+  mkdir -p "$RELEASE"
+  cp -r "$BUILD_PATH"/* "$RELEASE/"
+  ;;
+  
+  *)
+echo "ERROR:
+  Unsupported type: $TYPE"
+    exit 1
+    ;;
+    esac
+    
+    echo "Creating .env file..."
+    write_env_file "$SERVER_ENV_FILE"
+    cp "$SERVER_ENV_FILE" "$RELEASE_ENV_FILE"
+    chmod 600 "$RELEASE_ENV_FILE"
+    
+    if [ ! -f "$SERVER_ENV_FILE" ]; then
+echo "ERROR: .env file was not created at $SERVER_ENV_FILE"
+  exit 1
+  fi
 
-            chmod 600 "$file"
-          }
+echo "Created: $SERVER_ENV_FILE"
+  
+  echo "Updating current release..."
+  ln -sfn "$RELEASE" "$BASE/current"
+  
+  if [ -f "$BASE/app.pid" ]; then
+  kill "$(cat "$BASE/app.pid")" 2>/dev/null || true
+  rm -f "$BASE/app.pid"
+  fi
+  
+  echo "Starting service..."
+  
+  case "$TYPE" in
+  java)
+  load_env_file "$SERVER_ENV_FILE"
+  cd "$BASE/current"
+  nohup java -jar app.jar > "$BASE/app.log" 2>&1 &
+  echo $! > "$BASE/app.pid"
+  ;;
+  
+  node)
+  load_env_file "$SERVER_ENV_FILE"
+  cd "$BASE/current"
+  
+  if [ -f "dist/index.js" ]; then
+  nohup node dist/index.js > "$BASE/app.log" 2>&1 &
+  elif [ -f "index.js" ]; then
+  nohup node index.js > "$BASE/app.log" 2>&1 &
+  else
+echo "ERROR: Node entrypoint not found"
+  exit 1
+  fi
+  
+  echo $! > "$BASE/app.pid"
+  ;;
+  
+  python)
+  load_env_file "$SERVER_ENV_FILE"
+  cd "$BASE/current"
+  nohup python3 app.py > "$BASE/app.log" 2>&1 &
+  echo $! > "$BASE/app.pid"
+  ;;
+  
+  docker)
+  docker rm -f "$SERVICE" 2>/dev/null || true
+  docker run -d \
+  --name "$SERVICE" \
+  -p 8080:8080 \
+  --env-file "$SERVER_ENV_FILE" \
+  "$SERVICE:$TAG"
+  ;;
+  
+  angular)
+  echo "Angular static files deployed to $BASE/current"
+  ;;
+  esac
 
-          load_env_file() {
-            local file="$1"
-            set -a
-            . "$file"
-            set +a
-          }
-
-          while IFS= read -r FILE; do
-            [ -z "$FILE" ] && continue
-
-            echo "=========================="
-            echo "Deploying $FILE"
-            echo "=========================="
-
-            ENV=$(echo "$FILE" | cut -d'/' -f1)
-            ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
-            SERVICE=$(basename "$FILE" .yml)
-
-            TAG=$(yq e '.tag' "$FILE")
-            REPO=$(yq e '.repo' "$FILE")
-            TYPE=$(yq e '.type' "$FILE")
-
-            echo "ENV: $ENV"
-            echo "SERVICE: $SERVICE"
-            echo "TAG: $TAG"
-            echo "REPO: $REPO"
-            echo "TYPE: $TYPE"
-
-            BASE="/home/Center-management/$ENV/$SERVICE"
-            RELEASE="$BASE/releases/$TAG"
-            WORKSPACE="/tmp/build/$SERVICE-$TAG"
-            SERVER_ENV_FILE="$BASE/.env"
-
-            mkdir -p "$BASE" "$BASE/releases" "$RELEASE"
-            rm -rf "$WORKSPACE"
-
-            echo "Cloning repo..."
-            git clone "https://github.com/$REPO" "$WORKSPACE"
-
-            cd "$WORKSPACE"
-            git checkout "$TAG"
-
-            echo "Resolving database variables..."
-
-            DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
-            DB_USER_VAR="DATABASE_USERNAME_${ENV_UPPER}"
-            DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
-            APP_PORT_VAR="APP_PORT_${ENV_UPPER}"
-
-            DATABASE_NAME="${!DB_NAME_VAR:-}"
-            DATABASE_USERNAME="${!DB_USER_VAR:-}"
-            DATABASE_PASSWORD="${!DB_PASS_VAR:-}"
-            APP_PORT="${!APP_PORT_VAR:-8080}"
-
-            if [ -z "${SPRING_DATASOURCE_URL:-}" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
-              echo "ERROR: Missing deployment variables for $ENV"
-              exit 1
-            fi
-
-            echo "Building service..."
-
-            case "$TYPE" in
-              java)
-                mvn -B clean package -DskipTests
-
-                JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
-
-                if [ -z "$JAR" ]; then
-                  echo "ERROR: JAR not found"
-                  exit 1
-                fi
-
-                cp "$JAR" "$RELEASE/app.jar"
-                ;;
-
-              node)
-                npm ci
-                npm run build || true
-                rsync -a --delete --exclude '.git' ./ "$RELEASE/"
-                ;;
-
-              python)
-                pip install -r requirements.txt || true
-                rsync -a --delete --exclude '.git' ./ "$RELEASE/"
-                ;;
-
-              docker)
-                docker build -t "$SERVICE:$TAG" .
-                ;;
-
-              angular)
-                npm ci
-                npm run build -- --configuration production
-
-                BUILD_PATH=$(find dist -mindepth 1 -maxdepth 2 -type d | head -n 1)
-
-                if [ -z "$BUILD_PATH" ]; then
-                  echo "ERROR: Angular build not found"
-                  exit 1
-                fi
-
-                rsync -a --delete "$BUILD_PATH"/ "$RELEASE"/
-                ;;
-
-              *)
-                echo "ERROR: Unsupported type: $TYPE"
-                exit 1
-                ;;
-            esac
-
-            echo "Writing server .env file..."
-            write_env_file "$SERVER_ENV_FILE"
-
-            echo "Updating current release..."
-            ln -sfn "$RELEASE" "$BASE/current"
-
-            if [ -f "$BASE/app.pid" ]; then
-              kill "$(cat "$BASE/app.pid")" 2>/dev/null || true
-              rm -f "$BASE/app.pid"
-            fi
-
-            echo "Starting service..."
-
-            case "$TYPE" in
-              java)
-                load_env_file "$SERVER_ENV_FILE"
-                nohup java -jar "$BASE/current/app.jar" > "$BASE/app.log" 2>&1 &
-                echo $! > "$BASE/app.pid"
-                ;;
-
-              node)
-                load_env_file "$SERVER_ENV_FILE"
-
-                if [ -f "$BASE/current/dist/index.js" ]; then
-                  ENTRYPOINT="$BASE/current/dist/index.js"
-                elif [ -f "$BASE/current/index.js" ]; then
-                  ENTRYPOINT="$BASE/current/index.js"
-                else
-                  echo "ERROR: Node entrypoint not found"
-                  exit 1
-                fi
-
-                nohup node "$ENTRYPOINT" > "$BASE/app.log" 2>&1 &
-                echo $! > "$BASE/app.pid"
-                ;;
-
-              python)
-                load_env_file "$SERVER_ENV_FILE"
-                nohup python3 "$BASE/current/app.py" > "$BASE/app.log" 2>&1 &
-                echo $! > "$BASE/app.pid"
-                ;;
-
-              docker)
-                docker rm -f "$SERVICE" 2>/dev/null || true
-                docker run -d \
-                  --name "$SERVICE" \
-                  --restart unless-stopped \
-                  -p "$APP_PORT:8080" \
-                  --env-file "$SERVER_ENV_FILE" \
-                  "$SERVICE:$TAG"
-                ;;
-
-              angular)
-                echo "Angular static build deployed to $BASE/current"
-                ;;
-            esac
-
-            echo "SUCCESS: $SERVICE deployed to $ENV"
-
-          done <<< "${{ steps.changes.outputs.files }}"
+echo "SUCCESS: $SERVICE deployed to $ENV"
+  done <<< "${{ steps.changes.outputs.files }}"

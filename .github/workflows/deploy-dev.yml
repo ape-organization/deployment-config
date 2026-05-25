@@ -13,43 +13,44 @@ jobs:
     runs-on: self-hosted
 
     steps:
-
       - name: Checkout Config Repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-
       - name: Install yq
         run: |
-          mkdir -p $HOME/bin
-          wget -qO $HOME/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
-          chmod +x $HOME/bin/yq
-          echo "$HOME/bin" >> $GITHUB_PATH
-
+          mkdir -p "$HOME/bin"
+          wget -qO "$HOME/bin/yq" https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          chmod +x "$HOME/bin/yq"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
 
       - name: Detect Changed Files
         id: changes
+        shell: bash
         run: |
-
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -E '^(dev|preprod|prod)/.*\.yml$' || true)
 
           if [ -z "$FILES" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
+        shell: bash
         env:
+          # Non-sensitive values: put these in GitHub Variables
+          DATABASE_HOST_SERVER: ${{ vars.DATABASE_HOST_SERVER }}
+          APP_PORT_DEV: ${{ vars.APP_PORT_DEV }}
+          APP_PORT_PREPROD: ${{ vars.APP_PORT_PREPROD }}
+          APP_PORT_PROD: ${{ vars.APP_PORT_PROD }}
 
-          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
-
+          # Sensitive values: keep these in GitHub Secrets
           DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
           DATABASE_NAME_PREPROD: ${{ secrets.DATABASE_NAME_PREPROD }}
           DATABASE_NAME_PROD: ${{ secrets.DATABASE_NAME_PROD }}
@@ -63,11 +64,46 @@ jobs:
           DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
 
         run: |
+          set -Eeuo pipefail
 
-          set -e
+          write_env_file() {
+            local file="$1"
+
+            mkdir -p "$(dirname "$file")"
+            umask 177
+            : > "$file"
+
+            printf 'APP_ENV=%q\n' "$ENV" >> "$file"
+            printf 'SERVICE_NAME=%q\n' "$SERVICE" >> "$file"
+            printf 'SERVER_PORT=%q\n' "$APP_PORT" >> "$file"
+
+            printf 'DATABASE_HOST_SERVER=%q\n' "$DATABASE_HOST_SERVER" >> "$file"
+            printf 'DATABASE_PORT=%q\n' "1433" >> "$file"
+            printf 'DATABASE_NAME=%q\n' "$DATABASE_NAME" >> "$file"
+            printf 'DATABASE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
+            printf 'DATABASE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+
+            printf 'DB_HOST=%q\n' "$DATABASE_HOST_SERVER" >> "$file"
+            printf 'DB_PORT=%q\n' "1433" >> "$file"
+            printf 'DB_NAME=%q\n' "$DATABASE_NAME" >> "$file"
+            printf 'DB_USER=%q\n' "$DATABASE_USERNAME" >> "$file"
+            printf 'DB_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+
+            printf 'SPRING_DATASOURCE_URL=%q\n' "jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" >> "$file"
+            printf 'SPRING_DATASOURCE_USERNAME=%q\n' "$DATABASE_USERNAME" >> "$file"
+            printf 'SPRING_DATASOURCE_PASSWORD=%q\n' "$DATABASE_PASSWORD" >> "$file"
+
+            chmod 600 "$file"
+          }
+
+          load_env_file() {
+            local file="$1"
+            set -a
+            . "$file"
+            set +a
+          }
 
           while IFS= read -r FILE; do
-
             [ -z "$FILE" ] && continue
 
             echo "=========================="
@@ -76,61 +112,53 @@ jobs:
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
             ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+            SERVICE=$(basename "$FILE" .yml)
 
-            SERVICE=$(basename $FILE .yml)
-
-            TAG=$(yq e '.tag' $FILE)
-            REPO=$(yq e '.repo' $FILE)
-            TYPE=$(yq e '.type' $FILE)
+            TAG=$(yq e '.tag' "$FILE")
+            REPO=$(yq e '.repo' "$FILE")
+            TYPE=$(yq e '.type' "$FILE")
 
             echo "ENV: $ENV"
             echo "SERVICE: $SERVICE"
             echo "TAG: $TAG"
             echo "REPO: $REPO"
-
+            echo "TYPE: $TYPE"
 
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
+            SERVER_ENV_FILE="$BASE/.env"
 
-
-            mkdir -p "$RELEASE"
+            mkdir -p "$BASE" "$BASE/releases" "$RELEASE"
             rm -rf "$WORKSPACE"
 
-
             echo "Cloning repo..."
-
-            git clone https://github.com/$REPO "$WORKSPACE"
+            git clone "https://github.com/$REPO" "$WORKSPACE"
 
             cd "$WORKSPACE"
-
             git checkout "$TAG"
-
 
             echo "Resolving database variables..."
 
             DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
-            DB_USER_VAR="DATABASE_NAME_${ENV_UPPER}"
+            DB_USER_VAR="DATABASE_USERNAME_${ENV_UPPER}"
             DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
+            APP_PORT_VAR="APP_PORT_${ENV_UPPER}"
 
-            DATABASE_NAME=${!DB_NAME_VAR}
-            DATABASE_USERNAME=${!DB_USER_VAR}
-            DATABASE_PASSWORD=${!DB_PASS_VAR}
+            DATABASE_NAME="${!DB_NAME_VAR:-}"
+            DATABASE_USERNAME="${!DB_USER_VAR:-}"
+            DATABASE_PASSWORD="${!DB_PASS_VAR:-}"
+            APP_PORT="${!APP_PORT_VAR:-8080}"
 
-
-            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
-              echo "ERROR: Missing DB credentials for $ENV"
+            if [ -z "${DATABASE_HOST_SERVER:-}" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+              echo "ERROR: Missing deployment variables for $ENV"
               exit 1
             fi
 
-
             echo "Building service..."
 
-
             case "$TYPE" in
-
               java)
-
                 mvn -B clean package -DskipTests
 
                 JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
@@ -144,120 +172,97 @@ jobs:
                 ;;
 
               node)
-
                 npm ci
                 npm run build || true
-                rsync -a . "$RELEASE"
+                rsync -a --delete --exclude '.git' ./ "$RELEASE/"
                 ;;
 
               python)
-
                 pip install -r requirements.txt || true
-                rsync -a . "$RELEASE"
+                rsync -a --delete --exclude '.git' ./ "$RELEASE/"
                 ;;
 
               docker)
-
-                docker build -t $SERVICE:$TAG .
-                ;;
-
-            esac
-
-
-            echo "Updating current release..."
-
-            ln -sfn "$RELEASE" "$BASE/current"
-
-
-            if [ -f "$BASE/app.pid" ]; then
-              kill $(cat "$BASE/app.pid") || true
-            fi
-
-
-            echo "Starting service..."
-
-
-            case "$TYPE" in
-
-              java)
-            
-                nohup env \
-                SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
-                SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
-                  DB_PORT=1433 \
-                  java -jar "$RELEASE/app.jar" \
-                  > "$BASE/app.log" 2>&1 &
-            
-                echo $! > "$BASE/app.pid"
-                ;;
-
-
-              node)
-
-                nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_USERNAME=$DATABASE_USERNAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  node "$RELEASE/dist/index.js" \
-                  > "$BASE/app.log" 2>&1 &
-
-                echo $! > "$BASE/app.pid"
-                ;;
-
-
-              python)
-
-                nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_USERNAME=$DATABASE_USERNAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  python3 "$RELEASE/app.py" \
-                  > "$BASE/app.log" 2>&1 &
-
-                echo $! > "$BASE/app.pid"
-                ;;
-
-
-              docker)
-
-                docker rm -f $SERVICE 2>/dev/null || true
-
-                docker run -d \
-                  --name $SERVICE \
-                  -p 8080:8080 \
-                  -e DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
-                  -e DATABASE_NAME=$DATABASE_NAME \
-                  -e DATABASE_USERNAME=$DATABASE_USERNAME \
-                  -e DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  $SERVICE:$TAG
+                docker build -t "$SERVICE:$TAG" .
                 ;;
 
               angular)
-              
-                npm install
-              
+                npm ci
                 npm run build -- --configuration production
-              
-                BUILD_PATH=$(find dist -maxdepth 2 -type d | head -n 1)
-              
+
+                BUILD_PATH=$(find dist -mindepth 1 -maxdepth 2 -type d | head -n 1)
+
                 if [ -z "$BUILD_PATH" ]; then
                   echo "ERROR: Angular build not found"
                   exit 1
                 fi
-              
-                rm -rf "$RELEASE"
-                mkdir -p "$RELEASE"
-              
-                cp -r "$BUILD_PATH"/* "$RELEASE"
-              
+
+                rsync -a --delete "$BUILD_PATH"/ "$RELEASE"/
+                ;;
+
+              *)
+                echo "ERROR: Unsupported type: $TYPE"
+                exit 1
                 ;;
             esac
 
+            echo "Writing server .env file..."
+            write_env_file "$SERVER_ENV_FILE"
+
+            echo "Updating current release..."
+            ln -sfn "$RELEASE" "$BASE/current"
+
+            if [ -f "$BASE/app.pid" ]; then
+              kill "$(cat "$BASE/app.pid")" 2>/dev/null || true
+              rm -f "$BASE/app.pid"
+            fi
+
+            echo "Starting service..."
+
+            case "$TYPE" in
+              java)
+                load_env_file "$SERVER_ENV_FILE"
+                nohup java -jar "$BASE/current/app.jar" > "$BASE/app.log" 2>&1 &
+                echo $! > "$BASE/app.pid"
+                ;;
+
+              node)
+                load_env_file "$SERVER_ENV_FILE"
+
+                if [ -f "$BASE/current/dist/index.js" ]; then
+                  ENTRYPOINT="$BASE/current/dist/index.js"
+                elif [ -f "$BASE/current/index.js" ]; then
+                  ENTRYPOINT="$BASE/current/index.js"
+                else
+                  echo "ERROR: Node entrypoint not found"
+                  exit 1
+                fi
+
+                nohup node "$ENTRYPOINT" > "$BASE/app.log" 2>&1 &
+                echo $! > "$BASE/app.pid"
+                ;;
+
+              python)
+                load_env_file "$SERVER_ENV_FILE"
+                nohup python3 "$BASE/current/app.py" > "$BASE/app.log" 2>&1 &
+                echo $! > "$BASE/app.pid"
+                ;;
+
+              docker)
+                docker rm -f "$SERVICE" 2>/dev/null || true
+                docker run -d \
+                  --name "$SERVICE" \
+                  --restart unless-stopped \
+                  -p "$APP_PORT:8080" \
+                  --env-file "$SERVER_ENV_FILE" \
+                  "$SERVICE:$TAG"
+                ;;
+
+              angular)
+                echo "Angular static build deployed to $BASE/current"
+                ;;
+            esac
 
             echo "SUCCESS: $SERVICE deployed to $ENV"
-
 
           done <<< "${{ steps.changes.outputs.files }}"

@@ -45,7 +45,7 @@ jobs:
         shell: bash
         env:
           # Non-sensitive values: put these in GitHub Variables
-          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
+          SPRING_DATASOURCE_URL: ${{ secrets.DATABASE_HOST_SERVER }}
           APP_PORT_DEV: ${{ vars.APP_PORT_DEV }}
           APP_PORT_PREPROD: ${{ vars.APP_PORT_PREPROD }}
           APP_PORT_PROD: ${{ vars.APP_PORT_PROD }}

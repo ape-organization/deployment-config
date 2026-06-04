@@ -132,6 +132,13 @@ jobs:
               DATABASE_HOST="$PROD_DATABASE_HOST"
             fi
 
+            echo "ENV=$ENV"
+            echo "DATABASE_HOST set? $( [ -n "$DATABASE_HOST" ] && echo YES || echo NO )"
+            echo "DATABASE_NAME set? $( [ -n "$DATABASE_NAME" ] && echo YES || echo NO )"
+            echo "DATABASE_USERNAME set? $( [ -n "$DATABASE_USERNAME" ] && echo YES || echo NO )"
+            echo "DATABASE_PASSWORD set? $( [ -n "$DATABASE_PASSWORD" ] && echo YES || echo NO )"
+
+
             if [ -z "$DATABASE_HOST" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"
               exit 1

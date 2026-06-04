@@ -113,15 +113,24 @@ jobs:
 
             echo "Resolving database variables..."
 
-            DB_NAME_VAR="${ENV_UPPER}_DATABASE_NAME"
-            DB_USER_VAR="${ENV_UPPER}_DATABASE_USERNAME"
-            DB_PASS_VAR="${ENV_UPPER}_DATABASE_PASSWORD"
-            DB_HOST_VAR="${ENV_UPPER}_DATABASE_HOST"
+            if [ "$ENV" = "dev" ]; then
+              DATABASE_NAME="$DEV_DATABASE_NAME"
+              DATABASE_USERNAME="$DEV_DATABASE_USERNAME"
+              DATABASE_PASSWORD="$DEV_DATABASE_PASSWORD"
+              DATABASE_HOST="$DEV_DATABASE_HOST"
 
-            DATABASE_NAME=${!DB_NAME_VAR}
-            DATABASE_USERNAME=${!DB_USER_VAR}
-            DATABASE_PASSWORD=${!DB_PASS_VAR}
-            DATABASE_HOST=${!DB_HOST_VAR}
+            elif [ "$ENV" = "preprod" ]; then
+              DATABASE_NAME="$PREPROD_DATABASE_NAME"
+              DATABASE_USERNAME="$PREPROD_DATABASE_USERNAME"
+              DATABASE_PASSWORD="$PREPROD_DATABASE_PASSWORD"
+              DATABASE_HOST="$PREPROD_DATABASE_HOST"
+
+            elif [ "$ENV" = "prod" ]; then
+              DATABASE_NAME="$PROD_DATABASE_NAME"
+              DATABASE_USERNAME="$PROD_DATABASE_USERNAME"
+              DATABASE_PASSWORD="$PROD_DATABASE_PASSWORD"
+              DATABASE_HOST="$PROD_DATABASE_HOST"
+            fi
 
             if [ -z "$DATABASE_HOST" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"

@@ -152,16 +152,21 @@ jobs:
 
               java)
 
+                
                 mvn -B clean package -DskipTests
 
-                JAR=$(find target -name "*.jar" | grep -v original | head -n 1)
+                docker build -t $SERVICE:$TAG .
 
-                if [ -z "$JAR" ]; then
-                  echo "ERROR: JAR not found"
-                  exit 1
-                fi
+                docker rm -f $SERVICE 2>/dev/null || true
 
-                cp "$JAR" "$RELEASE/app.jar"
+                docker run -d \
+                --name $SERVICE \
+                -p 8080:8080 \
+                -e SPRING_PROFILES_ACTIVE=$ENV \
+                -e SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST:1433;databaseName=$DATABASE_NAME;encrypt=true;trustServerCertificate=true" \
+                -e SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
+                -e SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
+                $SERVICE:$TAG
                 ;;
 
               node)
@@ -185,14 +190,7 @@ jobs:
             esac
 
 
-            echo "Updating current release..."
-
-            ln -sfn "$RELEASE" "$BASE/current"
-
-
-            if [ -f "$BASE/app.pid" ]; then
-              kill $(cat "$BASE/app.pid") || true
-            fi
+            
 
 
             echo "Starting service..."
@@ -200,48 +198,13 @@ jobs:
 
             case "$TYPE" in
 
-              java)
             
-                nohup env \
-                SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
-                SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
-                SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
-                  DB_PORT=1433 \
-                  java -jar "$RELEASE/app.jar" \
-                  > "$BASE/app.log" 2>&1 &
-            
-                echo $! > "$BASE/app.pid"
-                ;;
 
 
-              node)
-
-                nohup env \
-                  DATABASE_HOST=$DATABASE_HOST \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_USERNAME=$DATABASE_USERNAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  node "$RELEASE/dist/index.js" \
-                  > "$BASE/app.log" 2>&1 &
-
-                echo $! > "$BASE/app.pid"
-                ;;
+              
 
 
-              python)
-
-                nohup env \
-                  DATABASE_HOST=$DATABASE_HOST \
-                  DATABASE_NAME=$DATABASE_NAME \
-                  DATABASE_USERNAME=$DATABASE_USERNAME \
-                  DATABASE_PASSWORD=$DATABASE_PASSWORD \
-                  python3 "$RELEASE/app.py" \
-                  > "$BASE/app.log" 2>&1 &
-
-                echo $! > "$BASE/app.pid"
-                ;;
-
-
+              
               docker)
 
                 docker rm -f $SERVICE 2>/dev/null || true

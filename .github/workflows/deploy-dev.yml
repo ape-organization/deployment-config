@@ -48,19 +48,23 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         env:
 
-          DATABASE_HOST_SERVER: ${{ secrets.DATABASE_HOST_SERVER }}
+          
+          
+          DEV_DATABASE_NAME: ${{ secrets.DEV_DATABASE_NAME }}
+          PREPROD_DATABASE_NAME: ${{ secrets.PREPROD_DATABASE_NAME }}
+          PROD_DATABASE_NAME: ${{ secrets.PROD_DATABASE_NAME }}
 
-          DATABASE_NAME_DEV: ${{ secrets.DATABASE_NAME_DEV }}
-          DATABASE_NAME_PREPROD: ${{ secrets.DATABASE_NAME_PREPROD }}
-          DATABASE_NAME_PROD: ${{ secrets.DATABASE_NAME_PROD }}
+          DEV_DATABASE_USERNAME: ${{ secrets.DEV_DATABASE_USERNAME }}
+          PREPROD_DATABASE_USERNAME: ${{ secrets.PREPROD_DATABASE_USERNAME }}
+          PROD_DATABASE_USERNAME: ${{ secrets.PROD_DATABASE_USERNAME }}
 
-          DATABASE_USERNAME_DEV: ${{ secrets.DATABASE_USERNAME_DEV }}
-          DATABASE_USERNAME_PREPROD: ${{ secrets.DATABASE_USERNAME_PREPROD }}
-          DATABASE_USERNAME_PROD: ${{ secrets.DATABASE_USERNAME_PROD }}
+          DEV_DATABASE_PASSWORD: ${{ secrets.DEV_DATABASE_PASSWORD }}
+          PREPROD_DATABASE_PASSWORD: ${{ secrets.PREPROD_DATABASE_PASSWORD }}
+          PROD_DATABASE_PASSWORD: ${{ secrets.PROD_DATABASE_PASSWORD }}
 
-          DATABASE_PASSWORD_DEV: ${{ secrets.DATABASE_PASSWORD_DEV }}
-          DATABASE_PASSWORD_PREPROD: ${{ secrets.DATABASE_PASSWORD_PREPROD }}
-          DATABASE_PASSWORD_PROD: ${{ secrets.DATABASE_PASSWORD_PROD }}
+          DEV_DATABASE_HOST: ${{ secrets.DEV_DATABASE_HOST }}
+          PREPROD_DATABASE_HOST: ${{ secrets.PREPROD_DATABASE_HOST }}
+          PROD_DATABASE_HOST: ${{ secrets.PROD_DATABASE_HOST }}
 
         run: |
 
@@ -109,16 +113,17 @@ jobs:
 
             echo "Resolving database variables..."
 
-            DB_NAME_VAR="DATABASE_NAME_${ENV_UPPER}"
-            DB_USER_VAR="DATABASE_NAME_${ENV_UPPER}"
-            DB_PASS_VAR="DATABASE_PASSWORD_${ENV_UPPER}"
+            DB_NAME_VAR="${ENV_UPPER}_DATABASE_NAME"
+            DB_USER_VAR="${ENV_UPPER}_DATABASE_USERNAME"
+            DB_PASS_VAR="${ENV_UPPER}_DATABASE_PASSWORD"
+            DB_HOST_VAR="${ENV_UPPER}_DATABASE_HOST"
 
             DATABASE_NAME=${!DB_NAME_VAR}
             DATABASE_USERNAME=${!DB_USER_VAR}
             DATABASE_PASSWORD=${!DB_PASS_VAR}
+            DATABASE_HOST=${!DB_HOST_VAR}
 
-
-            if [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
+            if [ -z "$DATABASE_HOST" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
               echo "ERROR: Missing DB credentials for $ENV"
               exit 1
             fi
@@ -182,7 +187,7 @@ jobs:
               java)
             
                 nohup env \
-                SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST_SERVER:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
+                SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST:1433;databaseName=$DATABASE_NAME;encrypt=false;trustServerCertificate=true" \
                 SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
                 SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
                   DB_PORT=1433 \
@@ -196,7 +201,7 @@ jobs:
               node)
 
                 nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_HOST=$DATABASE_HOST \
                   DATABASE_NAME=$DATABASE_NAME \
                   DATABASE_USERNAME=$DATABASE_USERNAME \
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
@@ -210,7 +215,7 @@ jobs:
               python)
 
                 nohup env \
-                  DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  DATABASE_HOST=$DATABASE_HOST \
                   DATABASE_NAME=$DATABASE_NAME \
                   DATABASE_USERNAME=$DATABASE_USERNAME \
                   DATABASE_PASSWORD=$DATABASE_PASSWORD \
@@ -228,7 +233,7 @@ jobs:
                 docker run -d \
                   --name $SERVICE \
                   -p 8080:8080 \
-                  -e DATABASE_HOST_SERVER=$DATABASE_HOST_SERVER \
+                  -e DATABASE_HOST=$DATABASE_HOST \
                   -e DATABASE_NAME=$DATABASE_NAME \
                   -e DATABASE_USERNAME=$DATABASE_USERNAME \
                   -e DATABASE_PASSWORD=$DATABASE_PASSWORD \

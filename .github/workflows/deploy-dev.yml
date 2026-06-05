@@ -82,7 +82,8 @@ jobs:
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
 
-            git clone https://github.com/$REPO "$WORKSPACE"
+            echo "Cloning: $REPO"    
+            GIT_TERMINAL_PROMPT=0 git clone https://github.com/${REPO}.git "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"
 

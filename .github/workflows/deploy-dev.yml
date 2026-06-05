@@ -83,14 +83,13 @@ jobs:
             rm -rf "$WORKSPACE"
             git config --list | grep credential || true
             echo "Cloning: $REPO"    
-            echo "Cloning: $REPO"
-    
-            echo "Cloning: $REPO"
+            
 
             rm -rf "$WORKSPACE"
 
             git -c credential.helper= \
                 -c core.askPass= \
+                -c http.extraheader= \
                 clone --depth 1 https://github.com/${REPO}.git "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"

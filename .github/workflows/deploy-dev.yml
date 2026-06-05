@@ -86,7 +86,7 @@ jobs:
 
             rm -rf "$WORKSPACE"
 
-            curl -L "https://github.com/${REPO}/archive/${TAG}.zip" -o repo.zip
+            curl -L "https://github.com/${REPO}/archive/refs/tags/${TAG}.zip" -o repo.zip
             unzip repo.zip
             rm repo.zip
 

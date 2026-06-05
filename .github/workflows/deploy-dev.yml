@@ -83,14 +83,7 @@ jobs:
             rm -rf "$WORKSPACE"
             git config --list | grep credential || true
             echo "Downloading repo: $REPO"
-
-            rm -rf "$WORKSPACE"
-
-            curl -L "https://github.com/${REPO}/archive/refs/tags/${TAG}.zip" -o repo.zip
-            unzip repo.zip
-            rm repo.zip
-
-            mv ${SERVICE}-${TAG} "$WORKSPACE"
+            git clone https://github.com/${REPO}.git "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"
 

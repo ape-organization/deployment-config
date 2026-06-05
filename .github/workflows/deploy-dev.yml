@@ -82,15 +82,15 @@ jobs:
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
             git config --list | grep credential || true
-            echo "Cloning: $REPO"    
-            
+            echo "Downloading repo: $REPO"
 
             rm -rf "$WORKSPACE"
 
-            git -c credential.helper= \
-                -c core.askPass= \
-                -c http.extraheader= \
-                clone --depth 1 https://github.com/${REPO}.git "$WORKSPACE"
+            curl -L "https://github.com/${REPO}/archive/${TAG}.zip" -o repo.zip
+            unzip repo.zip
+            rm repo.zip
+
+            mv ${SERVICE}-${TAG} "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"
 

@@ -13,12 +13,10 @@ jobs:
     runs-on: self-hosted
 
     steps:
-
       - name: Checkout Config Repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
 
       - name: Install yq
         run: |
@@ -27,11 +25,9 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-
       - name: Detect Changed Files
         id: changes
         run: |
-
           FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
 
           if [ -z "$FILES" ]; then
@@ -43,13 +39,9 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-
       - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
         env:
-
-          
-          
           DEV_DATABASE_NAME: ${{ vars.DEV_DATABASE_NAME }}
           PREPROD_DATABASE_NAME: ${{ vars.PREPROD_DATABASE_NAME }}
           PROD_DATABASE_NAME: ${{ vars.PROD_DATABASE_NAME }}
@@ -67,92 +59,66 @@ jobs:
           PROD_DATABASE_HOST: ${{ secrets.PROD_DATABASE_HOST }}
 
         run: |
-
           set -e
 
           while IFS= read -r FILE; do
-
             [ -z "$FILE" ] && continue
 
-            echo "=========================="
             echo "Deploying $FILE"
-            echo "=========================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
-            ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
-
             SERVICE=$(basename $FILE .yml)
 
             TAG=$(yq e '.tag' $FILE)
             REPO=$(yq e '.repo' $FILE)
             TYPE=$(yq e '.type' $FILE)
 
-            echo "ENV: $ENV"
-            echo "SERVICE: $SERVICE"
-            echo "TAG: $TAG"
-            echo "REPO: $REPO"
-
-
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
-
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
 
-
-            echo "Cloning repo..."
-
             git clone https://github.com/$REPO "$WORKSPACE"
-
             cd "$WORKSPACE"
-
             git checkout "$TAG"
 
-
-            echo "Resolving database variables..."
-
+            # =========================
+            # DB VARIABLES
+            # =========================
             if [ "$ENV" = "dev" ]; then
-              DATABASE_NAME="$DEV_DATABASE_NAME"
-              DATABASE_USERNAME="$DEV_DATABASE_USERNAME"
-              DATABASE_PASSWORD="$DEV_DATABASE_PASSWORD"
-              DATABASE_HOST="$DEV_DATABASE_HOST"
+              DB_NAME="$DEV_DATABASE_NAME"
+              DB_USER="$DEV_DATABASE_USERNAME"
+              DB_PASS="$DEV_DATABASE_PASSWORD"
+              DB_HOST="$DEV_DATABASE_HOST"
 
             elif [ "$ENV" = "preprod" ]; then
-              DATABASE_NAME="$PREPROD_DATABASE_NAME"
-              DATABASE_USERNAME="$PREPROD_DATABASE_USERNAME"
-              DATABASE_PASSWORD="$PREPROD_DATABASE_PASSWORD"
-              DATABASE_HOST="$PREPROD_DATABASE_HOST"
+              DB_NAME="$PREPROD_DATABASE_NAME"
+              DB_USER="$PREPROD_DATABASE_USERNAME"
+              DB_PASS="$PREPROD_DATABASE_PASSWORD"
+              DB_HOST="$PREPROD_DATABASE_HOST"
 
             elif [ "$ENV" = "prod" ]; then
-              DATABASE_NAME="$PROD_DATABASE_NAME"
-              DATABASE_USERNAME="$PROD_DATABASE_USERNAME"
-              DATABASE_PASSWORD="$PROD_DATABASE_PASSWORD"
-              DATABASE_HOST="$PROD_DATABASE_HOST"
+              DB_NAME="$PROD_DATABASE_NAME"
+              DB_USER="$PROD_DATABASE_USERNAME"
+              DB_PASS="$PROD_DATABASE_PASSWORD"
+              DB_HOST="$PROD_DATABASE_HOST"
             fi
 
-            echo "ENV=$ENV"
-            echo "DATABASE_HOST set? $( [ -n "$DATABASE_HOST" ] && echo YES || echo NO )"
-            echo "DATABASE_NAME set? $( [ -n "$DATABASE_NAME" ] && echo YES || echo NO )"
-            echo "DATABASE_USERNAME set? $( [ -n "$DATABASE_USERNAME" ] && echo YES || echo NO )"
-            echo "DATABASE_PASSWORD set? $( [ -n "$DATABASE_PASSWORD" ] && echo YES || echo NO )"
-
-
-            if [ -z "$DATABASE_HOST" ] || [ -z "$DATABASE_NAME" ] || [ -z "$DATABASE_USERNAME" ] || [ -z "$DATABASE_PASSWORD" ]; then
-              echo "ERROR: Missing DB credentials for $ENV"
+            if [ -z "$DB_HOST" ] || [ -z "$DB_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
+              echo "Missing DB config"
               exit 1
             fi
 
+            echo "Deploying $SERVICE in $ENV"
 
-            echo "Building service..."
-
-
+            # =========================
+            # BUILD + RUN
+            # =========================
             case "$TYPE" in
 
               java)
-
-                
                 mvn -B clean package -DskipTests
 
                 docker build -t $SERVICE:$TAG .
@@ -160,88 +126,54 @@ jobs:
                 docker rm -f $SERVICE 2>/dev/null || true
 
                 docker run -d \
-                --name $SERVICE \
-                -p 8080:8080 \
-                -e SPRING_PROFILES_ACTIVE=$ENV \
-                -e SPRING_DATASOURCE_URL="jdbc:sqlserver://$DATABASE_HOST:1433;databaseName=$DATABASE_NAME;encrypt=true;trustServerCertificate=true" \
-                -e SPRING_DATASOURCE_USERNAME="$DATABASE_USERNAME" \
-                -e SPRING_DATASOURCE_PASSWORD="$DATABASE_PASSWORD" \
-                $SERVICE:$TAG
+                  --name $SERVICE \
+                  -p 8080:8080 \
+                  -e SPRING_PROFILES_ACTIVE=$ENV \
+                  -e SPRING_DATASOURCE_URL="jdbc:sqlserver://$DB_HOST:1433;databaseName=$DB_NAME;encrypt=true;trustServerCertificate=true" \
+                  -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
+                  -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
+                  $SERVICE:$TAG
                 ;;
 
               node)
-
                 npm ci
                 npm run build || true
                 rsync -a . "$RELEASE"
                 ;;
 
               python)
-
                 pip install -r requirements.txt || true
                 rsync -a . "$RELEASE"
                 ;;
 
-              docker)
+              angular)
+                npm install
+                npm run build -- --configuration production
 
-                docker build -t $SERVICE:$TAG .
+                BUILD_PATH=$(find dist -maxdepth 2 -type d | head -n 1)
+
+                rm -rf "$RELEASE"
+                mkdir -p "$RELEASE"
+                cp -r "$BUILD_PATH"/* "$RELEASE"
                 ;;
 
-            esac
-
-
-            
-
-
-            echo "Starting service..."
-
-
-            case "$TYPE" in
-
-            
-
-
-              
-
-
-              
               docker)
+                docker build -t $SERVICE:$TAG .
 
                 docker rm -f $SERVICE 2>/dev/null || true
 
                 docker run -d \
                   --name $SERVICE \
                   -p 8080:8080 \
-                  -e DATABASE_HOST=$DATABASE_HOST \
-                  -e DATABASE_NAME=$DATABASE_NAME \
-                  -e DATABASE_USERNAME=$DATABASE_USERNAME \
-                  -e DATABASE_PASSWORD=$DATABASE_PASSWORD \
+                  -e DATABASE_HOST=$DB_HOST \
+                  -e DATABASE_NAME=$DB_NAME \
+                  -e DATABASE_USERNAME=$DB_USER \
+                  -e DATABASE_PASSWORD=$DB_PASS \
                   $SERVICE:$TAG
                 ;;
 
-              angular)
-              
-                npm install
-              
-                npm run build -- --configuration production
-              
-                BUILD_PATH=$(find dist -maxdepth 2 -type d | head -n 1)
-              
-                if [ -z "$BUILD_PATH" ]; then
-                  echo "ERROR: Angular build not found"
-                  exit 1
-                fi
-              
-                rm -rf "$RELEASE"
-                mkdir -p "$RELEASE"
-              
-                cp -r "$BUILD_PATH"/* "$RELEASE"
-              
-                ;;
             esac
 
-
-            echo "SUCCESS: $SERVICE deployed to $ENV"
-
+            echo "SUCCESS: $SERVICE deployed"
 
           done <<< "${{ steps.changes.outputs.files }}"

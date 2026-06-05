@@ -120,6 +120,10 @@ jobs:
                 docker rm -f $SERVICE 2>/dev/null || true
 
                 # ✅ IMPORTANT: no port mapping here
+                echo "DB_HOST=$DB_HOST"
+                echo "DB_NAME=$DB_NAME"
+                echo "DB_USER=$DB_USER"
+                echo "DB_PASS=$DB_PASS"
                 docker run -d \
                   --name $SERVICE \
                   --network center-network \
@@ -158,6 +162,10 @@ jobs:
                 docker rm -f $SERVICE 2>/dev/null || true
 
                 # ✅ no ports here
+                echo "DB_HOST=$DB_HOST"
+                echo "DB_NAME=$DB_NAME"
+                echo "DB_USER=$DB_USER"
+                echo "DB_PASS=$DB_PASS"
                 docker run -d \
                   --name $SERVICE \
                   --network center-network \

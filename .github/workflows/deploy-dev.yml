@@ -83,7 +83,11 @@ jobs:
             rm -rf "$WORKSPACE"
 
             echo "Cloning: $REPO"    
-            GIT_TERMINAL_PROMPT=0 git clone https://github.com/${REPO}.git "$WORKSPACE"
+            echo "Cloning: $REPO"
+    
+            git config --global --unset credential.helper || true
+
+            GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/${REPO}.git "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"
 

@@ -81,7 +81,7 @@ jobs:
 
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
-
+            git config --list | grep credential || true
             echo "Cloning: $REPO"    
             echo "Cloning: $REPO"
     

@@ -25,17 +25,10 @@ jobs:
           chmod +x $HOME/bin/yq
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # =========================
-      # Detect changed files (safe version)
-      # =========================
       - name: Detect Changed Files
         id: changes
         run: |
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            FILES=$(git diff --name-only HEAD~1 HEAD)
-          else
-            FILES=""
-          fi
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -46,9 +39,6 @@ jobs:
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # =========================
-      # Deploy
-      # =========================
       - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
         env:
@@ -79,18 +69,11 @@ jobs:
             echo "=========================="
 
             ENV=$(echo "$FILE" | cut -d'/' -f1)
-            SERVICE=$(basename "$FILE" .yml)
+            SERVICE=$(basename $FILE .yml)
 
-            TAG=$(yq e '.tag' "$FILE")
-            REPO=$(yq e '.repo' "$FILE")
-            TYPE=$(yq e '.type' "$FILE")
-            PORT=$(yq e '.port' "$FILE")
-
-            if [ -z "$PORT" ]; then
-              PORT=8080
-            fi
-
-            CONTAINER_NAME="${SERVICE}-${ENV}"
+            TAG=$(yq e '.tag' $FILE)
+            REPO=$(yq e '.repo' $FILE)
+            TYPE=$(yq e '.type' $FILE)
 
             BASE="/home/Center-management/$ENV/$SERVICE"
             RELEASE="$BASE/releases/$TAG"
@@ -99,9 +82,7 @@ jobs:
             mkdir -p "$RELEASE"
             rm -rf "$WORKSPACE"
 
-            echo "Cloning repo..."
-            git clone "https://github.com/$REPO" "$WORKSPACE"
-
+            git clone https://github.com/$REPO "$WORKSPACE"
             cd "$WORKSPACE"
             git checkout "$TAG"
 
@@ -120,40 +101,33 @@ jobs:
               DB_PASS="$PREPROD_DATABASE_PASSWORD"
               DB_HOST="$PREPROD_DATABASE_HOST"
 
-            elif [ "$ENV" = "prod" ]; then
+            else
               DB_NAME="$PROD_DATABASE_NAME"
               DB_USER="$PROD_DATABASE_USERNAME"
               DB_PASS="$PROD_DATABASE_PASSWORD"
               DB_HOST="$PROD_DATABASE_HOST"
             fi
 
-            if [ -z "$DB_HOST" ] || [ -z "$DB_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
-              echo "ERROR: Missing DB config"
-              exit 1
-            fi
+            echo "Deploying $SERVICE in $ENV"
 
-            echo "Deploying $SERVICE in $ENV on port $PORT"
-
-            # =========================
-            # BUILD + RUN
-            # =========================
             case "$TYPE" in
 
               java)
                 mvn -B clean package -DskipTests
 
-                docker build -t "$SERVICE:$TAG" .
+                docker build -t $SERVICE:$TAG .
 
-                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                docker rm -f $SERVICE 2>/dev/null || true
 
+                # ✅ IMPORTANT: no port mapping here
                 docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  -p $PORT:8080 \
-                  -e SPRING_PROFILES_ACTIVE="$ENV" \
+                  --name $SERVICE \
+                  --network center-network \
+                  -e SPRING_PROFILES_ACTIVE=$ENV \
                   -e SPRING_DATASOURCE_URL="jdbc:sqlserver://$DB_HOST:1433;databaseName=$DB_NAME;encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
-                  "$SERVICE:$TAG"
+                  $SERVICE:$TAG
                 ;;
 
               node)
@@ -175,27 +149,27 @@ jobs:
 
                 rm -rf "$RELEASE"
                 mkdir -p "$RELEASE"
-
                 cp -r "$BUILD_PATH"/* "$RELEASE"
                 ;;
 
               docker)
-                docker build -t "$SERVICE:$TAG" .
+                docker build -t $SERVICE:$TAG .
 
-                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                docker rm -f $SERVICE 2>/dev/null || true
 
+                # ✅ no ports here
                 docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  -p $PORT:8080 \
-                  -e DATABASE_HOST="$DB_HOST" \
-                  -e DATABASE_NAME="$DB_NAME" \
-                  -e DATABASE_USERNAME="$DB_USER" \
-                  -e DATABASE_PASSWORD="$DB_PASS" \
-                  "$SERVICE:$TAG"
+                  --name $SERVICE \
+                  --network center-network \
+                  -e DATABASE_HOST=$DB_HOST \
+                  -e DATABASE_NAME=$DB_NAME \
+                  -e DATABASE_USERNAME=$DB_USER \
+                  -e DATABASE_PASSWORD=$DB_PASS \
+                  $SERVICE:$TAG
                 ;;
 
             esac
 
-            echo "SUCCESS: $SERVICE deployed in $ENV"
+            echo "SUCCESS: $SERVICE deployed"
 
           done <<< "${{ steps.changes.outputs.files }}"

@@ -150,21 +150,22 @@ jobs:
                 ;;
 
               angular)
-                  npm install
-                  npm run build -- --configuration production
-                  
-                  IMAGE_NAME=$(echo "$SERVICE" | tr '[:upper:]' '[:lower:]')
-                  CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-                  
-                  docker build -t ${IMAGE_NAME}:${TAG} .
-                  
-                  docker rm -f $CONTAINER_NAME 2>/dev/null || true
-                  
-                  docker run -d \
-                    --name $CONTAINER_NAME \
-                    --network center-network \
-                    ${IMAGE_NAME}:${TAG}
-                  ;;
+                npm install
+                npm run build -- --configuration production
+              
+                IMAGE_NAME=$(echo "$SERVICE" | tr '[:upper:]' '[:lower:]')
+                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+              
+                docker build -t ${IMAGE_NAME}:${TAG} .
+              
+                docker rm -f $CONTAINER_NAME 2>/dev/null || true
+              
+                docker run -d \
+                  --name $CONTAINER_NAME \
+                  --network center-network \
+                  -p ${APP_PORT}:80 \
+                  ${IMAGE_NAME}:${TAG}
+                ;;
 
               docker)
                 docker build -t $SERVICE:$TAG .

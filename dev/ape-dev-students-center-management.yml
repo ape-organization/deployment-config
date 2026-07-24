@@ -2,5 +2,3 @@ tag: 1.2.22
 repo: ape-organization/ape-students-center-management
 type: java
 port: 8180
-username: DEV_DATABASE_USERNAME
-password: PREPROD_DATABASE_PASSWORD

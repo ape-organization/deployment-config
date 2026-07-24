@@ -42,10 +42,6 @@ jobs:
       - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
         env:
-          DEV_DATABASE_NAME: ${{ vars.DEV_DATABASE_NAME }}
-          PREPROD_DATABASE_NAME: ${{ vars.PREPROD_DATABASE_NAME }}
-          PROD_DATABASE_NAME: ${{ vars.PROD_DATABASE_NAME }}
-
           DEV_DATABASE_USERNAME: ${{ vars.DEV_DATABASE_USERNAME }}
           PREPROD_DATABASE_USERNAME: ${{ vars.PREPROD_DATABASE_USERNAME }}
           PROD_DATABASE_USERNAME: ${{ vars.PROD_DATABASE_USERNAME }}
@@ -54,9 +50,7 @@ jobs:
           PREPROD_DATABASE_PASSWORD: ${{ secrets.PREPROD_DATABASE_PASSWORD }}
           PROD_DATABASE_PASSWORD: ${{ secrets.PROD_DATABASE_PASSWORD }}
 
-          DEV_DATABASE_HOST: ${{ secrets.DEV_DATABASE_HOST }}
-          PREPROD_DATABASE_HOST: ${{ secrets.PREPROD_DATABASE_HOST }}
-          PROD_DATABASE_HOST: ${{ secrets.PROD_DATABASE_HOST }}
+          DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
 
         run: |
           set -e
@@ -92,22 +86,22 @@ jobs:
             # DB VARIABLES
             # =========================
             if [ "$ENV" = "dev" ]; then
-              DB_NAME="$DEV_DATABASE_NAME"
+              DB_NAME="$DEV_DATABASE_USERNAME"
               DB_USER="$DEV_DATABASE_USERNAME"
               DB_PASS="$DEV_DATABASE_PASSWORD"
-              DB_HOST="$DEV_DATABASE_HOST"
+              DB_HOST="$DATABASE_HOST"
 
             elif [ "$ENV" = "preprod" ]; then
-              DB_NAME="$PREPROD_DATABASE_NAME"
+              DB_NAME="$PREPROD_DATABASE_USERNAME"
               DB_USER="$PREPROD_DATABASE_USERNAME"
               DB_PASS="$PREPROD_DATABASE_PASSWORD"
-              DB_HOST="$PREPROD_DATABASE_HOST"
+              DB_HOST="$DATABASE_HOST"
 
             else
-              DB_NAME="$PROD_DATABASE_NAME"
+              DB_NAME="$PROD_DATABASE_USERNAME"
               DB_USER="$PROD_DATABASE_USERNAME"
               DB_PASS="$PROD_DATABASE_PASSWORD"
-              DB_HOST="$PROD_DATABASE_HOST"
+              DB_HOST="$DATABASE_HOST"
             fi
 
             echo "Deploying $SERVICE in $ENV"

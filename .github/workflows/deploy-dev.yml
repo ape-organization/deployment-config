@@ -72,20 +72,10 @@ jobs:
           # ==================================================
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
 
-
-          # ==================================================
-          # DEV - LANDING PAGE
-          # Angular does NOT require database
-          # ==================================================
-          DEV_LANDING_PAGE_DATABASE_NAME: ${{ vars.DEV_LANDING_PAGE_DATABASE_NAME }}
-          DEV_LANDING_PAGE_DATABASE_USERNAME: ${{ vars.DEV_LANDING_PAGE_DATABASE_USERNAME }}
-          DEV_LANDING_PAGE_DATABASE_PASSWORD: ${{ secrets.DEV_LANDING_PAGE_DATABASE_PASSWORD }}
-
-
           # ==================================================
           # DEV - ECOMMERCE
           # ==================================================
-          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_NAME }}
+          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
           DEV_ECOMMERCE_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
           DEV_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCE_DATABASE_PASSWORD }}
 
@@ -93,7 +83,7 @@ jobs:
           # ==================================================
           # PREPROD - ECOMMERCE
           # ==================================================
-          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_NAME }}
+          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
           PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
           PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PREPROD_ECOMMERCE_DATABASE_PASSWORD }}
 
@@ -101,7 +91,7 @@ jobs:
           # ==================================================
           # PROD - ECOMMERCE
           # ==================================================
-          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_ECOMMERCE_DATABASE_NAME }}
+          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
           PROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
           PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PROD_ECOMMERCE_DATABASE_PASSWORD }}
 
@@ -109,7 +99,7 @@ jobs:
           # ==================================================
           # DEV - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
+          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 
@@ -117,7 +107,7 @@ jobs:
           # ==================================================
           # PREPROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
+          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 
@@ -125,7 +115,7 @@ jobs:
           # ==================================================
           # PROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
+          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 

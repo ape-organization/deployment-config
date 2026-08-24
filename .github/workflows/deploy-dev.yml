@@ -2,7 +2,7 @@ name: Deploy Services
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'dev/*.yml'
       - 'preprod/*.yml'
@@ -14,138 +14,161 @@ jobs:
 
     steps:
 
-      # =========================
+      # ==================================================
       # Checkout Config Repository
-      # =========================
+      # ==================================================
       - name: Checkout Config Repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # =========================
+
+      # ==================================================
       # Install yq
-      # =========================
+      # ==================================================
       - name: Install yq
         run: |
-          mkdir -p $HOME/bin
+          mkdir -p "$HOME/bin"
 
-          wget -qO $HOME/bin/yq \
+          wget -qO "$HOME/bin/yq" \
             https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
 
-          chmod +x $HOME/bin/yq
+          chmod +x "$HOME/bin/yq"
 
-          echo "$HOME/bin" >> $GITHUB_PATH
+          echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      # =========================
+
+      # ==================================================
       # Detect Changed Files
-      # =========================
+      # ==================================================
       - name: Detect Changed Files
         id: changes
         run: |
+
           FILES=$(git diff --name-only \
-            ${{ github.event.before }} \
-            ${{ github.sha }})
+            "${{ github.event.before }}" \
+            "${{ github.sha }}")
 
           if [ -z "$FILES" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
-      # =========================
+
+      # ==================================================
       # Deploy Services
-      # =========================
+      # ==================================================
       - name: Deploy Services
         if: steps.changes.outputs.skip != 'true'
 
         env:
 
-          # =========================
+          # ==================================================
           # Database Host
-          # =========================
+          # ==================================================
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
 
 
           # ==================================================
-          # DEV - PHARMACY API
+          # DEV - LANDING PAGE
+          # Angular does NOT require database
           # ==================================================
-          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
+          DEV_LANDING_PAGE_DATABASE_NAME: ${{ vars.DEV_LANDING_PAGE_DATABASE_NAME }}
+          DEV_LANDING_PAGE_DATABASE_USERNAME: ${{ vars.DEV_LANDING_PAGE_DATABASE_USERNAME }}
+          DEV_LANDING_PAGE_DATABASE_PASSWORD: ${{ secrets.DEV_LANDING_PAGE_DATABASE_PASSWORD }}
+
+
+          # ==================================================
+          # DEV - ECOMMERCE
+          # ==================================================
+          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_NAME }}
           DEV_ECOMMERCE_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
           DEV_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCE_DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PREPROD - PHARMACY API
+          # PREPROD - ECOMMERCE
           # ==================================================
-          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCE_DATABASE_PASSWORD }}DATABASE_PASSWORD }}
+          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_NAME }}
+          PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
+          PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PREPROD_ECOMMERCE_DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PROD - PHARMACY API
+          # PROD - ECOMMERCE
           # ==================================================
-          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          PROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCE_DATABASE_PASSWORD }}
+          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_ECOMMERCE_DATABASE_NAME }}
+          PROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
+          PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PROD_ECOMMERCE_DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # DEV - STUDENTS CENTER
+          # DEV - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
+          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PREPROD - STUDENTS CENTER
+          # PREPROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
+          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PROD - STUDENTS CENTER
+          # PROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
+          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
 
 
         run: |
+
           set -e
 
+
+          # ==================================================
+          # Process Changed Files
+          # ==================================================
           while IFS= read -r FILE; do
 
             [ -z "$FILE" ] && continue
+
 
             echo ""
             echo "========================================"
             echo "Deploying: $FILE"
             echo "========================================"
 
-            # =========================
+
+            # ==================================================
             # Environment
-            # =========================
+            # ==================================================
             ENV=$(echo "$FILE" | cut -d'/' -f1)
 
-            # =========================
+
+            # ==================================================
             # Service Name
-            # =========================
+            # ==================================================
             SERVICE=$(basename "$FILE" .yml)
 
-            # =========================
-            # Read YAML
-            # =========================
+
+            # ==================================================
+            # Read YAML Configuration
+            # ==================================================
             TAG=$(yq e '.tag' "$FILE")
             REPO=$(yq e '.repo' "$FILE")
             TYPE=$(yq e '.type' "$FILE")
             APP_PORT=$(yq e '.port' "$FILE")
+
 
             echo "Environment : $ENV"
             echo "Service     : $SERVICE"
@@ -155,60 +178,66 @@ jobs:
             echo "Port        : $APP_PORT"
 
 
-            # =========================
+            # ==================================================
             # Paths
-            # =========================
+            # ==================================================
             BASE="/home/Center-management/$ENV/$SERVICE"
 
             RELEASE="$BASE/releases/$TAG"
 
             WORKSPACE="/tmp/build/$SERVICE-$TAG"
 
+
             mkdir -p "$RELEASE"
 
             rm -rf "$WORKSPACE"
 
 
-            # =========================
+            # ==================================================
             # Clone Repository
-            # =========================
+            # ==================================================
             echo ""
             echo "Downloading repository: $REPO"
+
 
             git clone \
               "https://github.com/${REPO}.git" \
               "$WORKSPACE"
 
+
             cd "$WORKSPACE"
 
+
             echo "Checking out tag: $TAG"
+
 
             git checkout "$TAG"
 
 
-            # ==========================================
-            # CREATE DYNAMIC DATABASE VARIABLE NAMES
-            # ==========================================
+            # ==================================================
+            # Create Dynamic Database Variable Names
+            # ==================================================
 
-            # pharmacy-api
+            # Example:
+            #
+            # Landing_Page
             # ↓
-            # PHARMACY_API
+            # LANDING_PAGE
+            #
+            # dev
+            # ↓
+            # DEV
+            #
+            # DEV_LANDING_PAGE_DATABASE_NAME
+
             SERVICE_KEY=$(echo "$SERVICE" \
               | tr '[:lower:]' '[:upper:]' \
               | tr '-' '_')
 
-            # dev
-            # ↓
-            # DEV
+
             ENV_KEY=$(echo "$ENV" \
               | tr '[:lower:]' '[:upper:]')
 
-
-            # Example:
-            #
-            # DEV_PHARMACY_API_DATABASE_NAME
-            # DEV_PHARMACY_API_DATABASE_USERNAME
-            # DEV_PHARMACY_API_DATABASE_PASSWORD
 
             DB_NAME_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_NAME"
 
@@ -224,83 +253,121 @@ jobs:
 
             echo "Environment: $ENV"
             echo "Service: $SERVICE"
+            echo "Service Type: $TYPE"
 
             echo "DB Name Variable: $DB_NAME_VAR"
             echo "DB User Variable: $DB_USER_VAR"
             echo "DB Password Variable: $DB_PASS_VAR"
 
 
-            # ==========================================
-            # GET ENVIRONMENT VARIABLES DYNAMICALLY
-            # ==========================================
-
-            DB_NAME="${!DB_NAME_VAR}"
-
-            DB_USER="${!DB_USER_VAR}"
-
-            DB_PASS="${!DB_PASS_VAR}"
+            # ==================================================
+            # Database Configuration
+            #
+            # Only services that actually require a database
+            # will load and validate database variables.
+            # ==================================================
 
             DB_HOST="$DATABASE_HOST"
 
 
-            # =========================
-            # Validate Database Values
-            # =========================
+            if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "docker" ]]; then
 
-            if [ -z "$DB_HOST" ]; then
-              echo "ERROR: DATABASE_HOST is empty"
-              exit 1
+              DB_NAME="${!DB_NAME_VAR:-}"
+              DB_USER="${!DB_USER_VAR:-}"
+              DB_PASS="${!DB_PASS_VAR:-}"
+
+
+              echo ""
+              echo "Database is required for service type: $TYPE"
+
+
+              # ==================================================
+              # Validate Database Host
+              # ==================================================
+              if [ -z "$DB_HOST" ]; then
+                echo "ERROR: DATABASE_HOST is empty"
+                exit 1
+              fi
+
+
+              # ==================================================
+              # Validate Database Name
+              # ==================================================
+              if [ -z "$DB_NAME" ]; then
+                echo "ERROR: Database name is empty."
+                echo "Expected variable: $DB_NAME_VAR"
+                exit 1
+              fi
+
+
+              # ==================================================
+              # Validate Database Username
+              # ==================================================
+              if [ -z "$DB_USER" ]; then
+                echo "ERROR: Database username is empty."
+                echo "Expected variable: $DB_USER_VAR"
+                exit 1
+              fi
+
+
+              # ==================================================
+              # Validate Database Password
+              # ==================================================
+              if [ -z "$DB_PASS" ]; then
+                echo "ERROR: Database password is empty."
+                echo "Expected variable: $DB_PASS_VAR"
+                exit 1
+              fi
+
+
+              echo "Database configuration loaded successfully."
+
+
+            else
+
+              echo ""
+              echo "Service type '$TYPE' does not require database configuration."
+
+              DB_NAME=""
+              DB_USER=""
+              DB_PASS=""
+
             fi
 
-            if [ -z "$DB_NAME" ]; then
-              echo "ERROR: Database name is empty."
-              echo "Expected variable: $DB_NAME_VAR"
-              exit 1
-            fi
 
-            if [ -z "$DB_USER" ]; then
-              echo "ERROR: Database username is empty."
-              echo "Expected variable: $DB_USER_VAR"
-              exit 1
-            fi
-
-            if [ -z "$DB_PASS" ]; then
-              echo "ERROR: Database password is empty."
-              echo "Expected variable: $DB_PASS_VAR"
-              exit 1
-            fi
-
-
-            echo "Database configuration loaded successfully."
-
-
-            # ==========================================
-            # DEPLOY BASED ON SERVICE TYPE
-            # ==========================================
+            # ==================================================
+            # Deploy Based On Service Type
+            # ==================================================
 
             echo ""
+            echo "========================================"
             echo "Deploying $SERVICE in $ENV"
+            echo "========================================"
 
 
             case "$TYPE" in
 
 
-              # ========================================
+              # ==================================================
               # JAVA / SPRING BOOT
-              # ========================================
+              # ==================================================
               java)
 
                 echo "Building Java project..."
 
+
                 mvn -B clean package -DskipTests
+
 
                 IMAGE_NAME=$(echo "$SERVICE" \
                   | tr '[:upper:]' '[:lower:]')
+
 
                 CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
 
 
                 echo "Building Docker image..."
+
 
                 docker build \
                   -t "${IMAGE_NAME}:${TAG}" \
@@ -309,12 +376,14 @@ jobs:
 
                 echo "Removing old container..."
 
+
                 docker rm -f \
                   "$CONTAINER_NAME" \
                   2>/dev/null || true
 
 
                 echo "Starting container..."
+
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
@@ -327,21 +396,24 @@ jobs:
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
                   "${IMAGE_NAME}:${TAG}"
 
+
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # .NET / ASP.NET CORE
-              # ========================================
+              # ==================================================
               dotnet)
 
                 IMAGE_NAME=$(echo "$SERVICE" \
                   | tr '[:upper:]' '[:lower:]')
 
+
                 CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
 
 
                 echo "Building .NET Docker image..."
+
 
                 docker build \
                   -t "${IMAGE_NAME}:${TAG}" \
@@ -350,12 +422,14 @@ jobs:
 
                 echo "Removing old container..."
 
+
                 docker rm -f \
                   "$CONTAINER_NAME" \
                   2>/dev/null || true
 
 
                 echo "Starting .NET container..."
+
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
@@ -367,51 +441,57 @@ jobs:
                   -e ConnectionStrings__DefaultConnection="Server=${DB_HOST};Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASS};TrustServerCertificate=True;" \
                   "${IMAGE_NAME}:${TAG}"
 
+
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # NODE
-              # ========================================
+              # ==================================================
               node)
 
                 npm ci
 
+
                 npm run build || true
 
+
                 rsync -a . "$RELEASE"
+
 
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # PYTHON
-              # ========================================
+              # ==================================================
               python)
 
                 pip install -r requirements.txt || true
 
+
                 rsync -a . "$RELEASE"
+
 
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # ANGULAR
-              # ========================================
+              #
+              # Angular is built inside Docker.
+              # No npm install or npm build is executed here.
+              # ==================================================
               angular)
-
-                npm install
-
-                npm run build \
-                  -- \
-                  --configuration production
-
 
                 IMAGE_NAME=$(echo "$SERVICE" \
                   | tr '[:upper:]' '[:lower:]')
 
+
                 CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+
+
+                echo "Building Angular Docker image..."
 
 
                 docker build \
@@ -419,9 +499,15 @@ jobs:
                   .
 
 
+                echo "Removing old Angular container..."
+
+
                 docker rm -f \
                   "$CONTAINER_NAME" \
                   2>/dev/null || true
+
+
+                echo "Starting Angular container..."
 
 
                 docker run -d \
@@ -431,18 +517,23 @@ jobs:
                   -p "${APP_PORT}:80" \
                   "${IMAGE_NAME}:${TAG}"
 
+
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # GENERIC DOCKER SERVICE
-              # ========================================
+              # ==================================================
               docker)
 
                 IMAGE_NAME=$(echo "$SERVICE" \
                   | tr '[:upper:]' '[:lower:]')
 
+
                 CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+
+
+                echo "Building Docker image..."
 
 
                 docker build \
@@ -450,9 +541,15 @@ jobs:
                   .
 
 
+                echo "Removing old container..."
+
+
                 docker rm -f \
                   "$CONTAINER_NAME" \
                   2>/dev/null || true
+
+
+                echo "Starting Docker container..."
 
 
                 docker run -d \
@@ -465,12 +562,13 @@ jobs:
                   -e DATABASE_PASSWORD="$DB_PASS" \
                   "${IMAGE_NAME}:${TAG}"
 
+
                 ;;
 
 
-              # ========================================
+              # ==================================================
               # UNKNOWN TYPE
-              # ========================================
+              # ==================================================
               *)
 
                 echo "ERROR: Unknown service type: $TYPE"

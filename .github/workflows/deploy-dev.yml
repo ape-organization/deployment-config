@@ -96,6 +96,31 @@ jobs:
           PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PROD_ECOMMERCE_DATABASE_PASSWORD }}
 
 
+          
+          # ==================================================
+          # DEV - ECOMMERCE
+          # ==================================================
+          DEV_ECOMMERCEPINKYAURA_DATABASE_NAME: ${{ vars.DEV_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          DEV_ECOMMERCEPINKYAURA_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          DEV_ECOMMERCEPINKYAURA_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCEPINKYAURA_DATABASE_PASSWORD }}
+
+
+          # ==================================================
+          # PREPROD - ECOMMERCE
+          # ==================================================
+          PREPROD_ECOMMERCEPINKYAURA_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          PREPROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME: ${{ vars.PREPROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          PREPROD_ECOMMERCEPINKYAURA_DATABASE_PASSWORD: ${{ secrets.PREPROD_ECOMMERCE_DATABASE_PASSWORD }}
+
+
+          # ==================================================
+          # PROD - ECOMMERCE
+          # ==================================================
+          PROD_ECOMMERCEPINKYAURA_DATABASE_NAME: ${{ vars.PROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          PROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME: ${{ vars.PROD_ECOMMERCEPINKYAURA_DATABASE_USERNAME }}
+          PROD_ECOMMERCEPINKYAURA_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCEPINKYAURA_DATABASE_PASSWORD }}
+
+
           # ==================================================
           # DEV - STUDENTS CENTER MANAGEMENT
           # ==================================================

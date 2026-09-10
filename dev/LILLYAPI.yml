@@ -1,0 +1,5 @@
+repo: ape-organization/LILLYAPI
+tag: 0.0.4
+type: dotnet
+port: 8385
+uploadPath: LILLY

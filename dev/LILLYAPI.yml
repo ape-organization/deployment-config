@@ -1,5 +1,5 @@
 repo: ape-organization/LILLYAPI
-tag: 0.0.8
+tag: 0.0.11
 type: dotnet
 port: 8385
 uploadPath: LILLY

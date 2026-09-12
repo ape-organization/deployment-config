@@ -75,7 +75,7 @@ jobs:
           # ==================================================
           # DEV - PinkyAura
           # ==================================================
-          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
+          DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_PinkyAura_DATABASE_USERNAME }}
           DEV_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           DEV_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
@@ -83,7 +83,7 @@ jobs:
           # ==================================================
           # PREPROD - PinkyAura
           # ==================================================
-          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
+          PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_PinkyAura_DATABASE_USERNAME }}
           PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
@@ -91,7 +91,7 @@ jobs:
           # ==================================================
           # PROD - PinkyAura
           # ==================================================
-          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
+          PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_PinkyAura_DATABASE_USERNAME }}
           PROD_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 

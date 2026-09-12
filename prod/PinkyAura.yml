@@ -1,5 +1,5 @@
 repo: ape-organization/E-CommerceAPI
-tag: 0.0.41
+tag: 0.0.40
 type: dotnet
 port: 6185
 uploadPath: E_Commerce

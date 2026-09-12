@@ -73,76 +73,76 @@ jobs:
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
 
           # ==================================================
-          # DEV - ECOMMERCE
+          # DEV - PinkyAura
           # ==================================================
           DEV_ECOMMERCE_DATABASE_NAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          DEV_ECOMMERCE_DATABASE_USERNAME: ${{ vars.DEV_ECOMMERCE_DATABASE_USERNAME }}
-          DEV_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DEV_ECOMMERCE_DATABASE_PASSWORD }}
+          DEV_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PREPROD - ECOMMERCE
+          # PREPROD - PinkyAura
           # ==================================================
           PREPROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
-          PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PREPROD_ECOMMERCE_DATABASE_USERNAME }}
-          PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PREPROD_ECOMMERCE_DATABASE_PASSWORD }}
+          PREPROD_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PREPROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PROD - ECOMMERCE
+          # PROD - PinkyAura
           # ==================================================
           PROD_ECOMMERCE_DATABASE_NAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
-          PROD_ECOMMERCE_DATABASE_USERNAME: ${{ vars.PROD_ECOMMERCE_DATABASE_USERNAME }}
-          PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.PROD_ECOMMERCE_DATABASE_PASSWORD }}
+          PROD_ECOMMERCE_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_ECOMMERCE_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           
           # ==================================================
-          # DEV - ECOMMERCE
+          # DEV - Lily
           # ==================================================
           DEV_LILLYAPI_DATABASE_NAME: ${{ vars.DEV_LILLYAPI_DATABASE_USERNAME }}
-          DEV_LILLYAPI_DATABASE_USERNAME: ${{ vars.DEV_LILLYAPI_DATABASE_USERNAME }}
-          DEV_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DEV_LILLYAPI_DATABASE_PASSWORD }}
+          DEV_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PREPROD - ECOMMERCE
+          # PREPROD - Lily
           # ==================================================
           PREPROD_LILLYAPI_DATABASE_NAME: ${{ vars.PREPROD_LILLYAPI_DATABASE_USERNAME }}
-          PREPROD_LILLYAPI_DATABASE_USERNAME: ${{ vars.PREPROD_LILLYAPI_DATABASE_USERNAME }}
-          PREPROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.PREPROD_LILLYAPI_DATABASE_PASSWORD }}
+          PREPROD_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PREPROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PROD - ECOMMERCE
+          # PROD - Lily
           # ==================================================
           PROD_LILLYAPI_DATABASE_NAME: ${{ vars.PROD_LILLYAPI_DATABASE_USERNAME }}
-          PROD_LILLYAPI_DATABASE_USERNAME: ${{ vars.PROD_LILLYAPI_DATABASE_USERNAME }}
-          PROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DEV_LILLYAPI_DATABASE_PASSWORD }}
+          PROD_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
           # DEV - STUDENTS CENTER MANAGEMENT
           # ==================================================
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
+          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
           # PREPROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
+          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
           # PROD - STUDENTS CENTER MANAGEMENT
           # ==================================================
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME }}
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD }}
+          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
         run: |

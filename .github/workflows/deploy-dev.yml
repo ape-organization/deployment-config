@@ -437,7 +437,7 @@ jobs:
                   -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
-                  -e bearer-token = "$SMSTOKEN" \
+                  -e bearer-token="$SMSTOKEN" \
                   "${IMAGE_NAME}:${TAG}"
 
 

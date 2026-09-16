@@ -71,6 +71,7 @@ jobs:
           # Database Host
           # ==================================================
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+          DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
           SMSTOKEN: ${{secrets.SMSTOKEN}}
 
 
@@ -310,6 +311,7 @@ jobs:
             # ==================================================
 
             DB_HOST="$DATABASE_HOST"
+            DB_HOST_JAVA="$DATABASE_HOST_JAVA"
             SMSTOKEN="$SMSTOKEN"
 
 
@@ -434,7 +436,7 @@ jobs:
                   --network center-network \
                   -p "${APP_PORT}:8080" \
                   -e SPRING_PROFILES_ACTIVE="$ENV" \
-                  -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
+                  -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST_JAVA}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
                   -e bearer-token="$SMSTOKEN" \

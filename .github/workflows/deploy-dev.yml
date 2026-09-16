@@ -71,6 +71,8 @@ jobs:
           # Database Host
           # ==================================================
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+          SMSTOKEN: ${{secrets.SMSTOKEN}}
+
 
           # ==================================================
           # DEV - PinkyAura
@@ -143,6 +145,30 @@ jobs:
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+
+                    # ==================================================
+          # DEV - SMS
+          # ==================================================
+          DEV_SMS_DATABASE_NAME: ${{ vars.DEV_SMS_DATABASE_NAME }}
+          DEV_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+
+          # ==================================================
+          # PREPROD - SMS
+          # ==================================================
+          PREPROD_SMS_DATABASE_NAME: ${{ vars.PREPROD_SMS_DATABASE_NAME }}
+          PREPROD_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PREPROD_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+
+          # ==================================================
+          # PROD - SMS
+          # ==================================================
+          PROD_SMS_DATABASE_NAME: ${{ vars.PROD_SMS_DATABASE_NAME }}
+          PROD_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
         run: |
@@ -284,6 +310,7 @@ jobs:
             # ==================================================
 
             DB_HOST="$DATABASE_HOST"
+            SMSTOKEN="$SMSTOKEN"
 
 
             if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "docker" ]]; then
@@ -410,6 +437,7 @@ jobs:
                   -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
+                  -e bearer-token = "$SMSTOKEN" \
                   "${IMAGE_NAME}:${TAG}"
 
 

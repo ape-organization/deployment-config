@@ -45,9 +45,11 @@ jobs:
         id: changes
         run: |
 
-          FILES=$(git diff --name-only \
+          # Only service files (ignore deleted files and the workflow itself)
+          FILES=$(git diff --name-only --diff-filter=ACMR \
             "${{ github.event.before }}" \
-            "${{ github.sha }}")
+            "${{ github.sha }}" \
+            | grep -E '^(dev|preprod|prod)/[^/]+\.yml$' || true)
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -68,11 +70,23 @@ jobs:
         env:
 
           # ==================================================
+          # All secrets (used by the "secrets:" list in each service file)
+          # ==================================================
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+
+
+          # ==================================================
+          # Automatic port range
+          # ==================================================
+          PORT_START: 5000
+          PORT_END: 5999
+
+
+          # ==================================================
           # Database Host
           # ==================================================
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
           DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
-          SMSTOKEN: ${{secrets.SMSTOKEN}}
 
 
           # ==================================================
@@ -99,7 +113,6 @@ jobs:
           PROD_PINKYAURA_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
-          
           # ==================================================
           # DEV - Lily
           # ==================================================
@@ -148,7 +161,7 @@ jobs:
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
-                    # ==================================================
+          # ==================================================
           # DEV - SMS
           # ==================================================
           DEV_SMS_DATABASE_NAME: ${{ vars.DEV_SMS_DATABASE_NAME }}
@@ -176,6 +189,10 @@ jobs:
 
           set -e
 
+          CONFIG_DIR="$GITHUB_WORKSPACE"
+
+          echo "## Deployed Services" >> "$GITHUB_STEP_SUMMARY"
+
 
           # ==================================================
           # Process Changed Files
@@ -183,6 +200,9 @@ jobs:
           while IFS= read -r FILE; do
 
             [ -z "$FILE" ] && continue
+
+            # Always go back to the config repo before reading the next file
+            cd "$CONFIG_DIR"
 
 
             echo ""
@@ -192,14 +212,10 @@ jobs:
 
 
             # ==================================================
-            # Environment
+            # Environment + Service Name
             # ==================================================
             ENV=$(echo "$FILE" | cut -d'/' -f1)
 
-
-            # ==================================================
-            # Service Name
-            # ==================================================
             SERVICE=$(basename "$FILE" .yml)
 
 
@@ -209,21 +225,20 @@ jobs:
             TAG=$(yq e '.tag' "$FILE")
             REPO=$(yq e '.repo' "$FILE")
             TYPE=$(yq e '.type' "$FILE")
-            APP_PORT=$(yq e '.port' "$FILE")
-            UPLOAD_SERVICE=$(yq e '.uploadPath' "$FILE")
-
-
-            echo "Environment : $ENV"
-            echo "Service     : $SERVICE"
-            echo "Repository  : $REPO"
-            echo "Tag         : $TAG"
-            echo "Type        : $TYPE"
-            echo "Port        : $APP_PORT"
+            PROJECT_PATH=$(yq e '.path // ""' "$FILE")
+            APP_PORT=$(yq e '.port // ""' "$FILE")
+            UPLOAD_SERVICE=$(yq e '.uploadPath // ""' "$FILE")
+            SECRET_NAMES=$(yq e '.secrets // [] | .[]' "$FILE")
 
 
             # ==================================================
-            # Paths
+            # Names + Paths
             # ==================================================
+            IMAGE_NAME=$(echo "$SERVICE" \
+              | tr '[:upper:]' '[:lower:]')
+
+            CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+
             BASE="/home/Center-management/$ENV/$SERVICE"
 
             RELEASE="$BASE/releases/$TAG"
@@ -234,6 +249,84 @@ jobs:
             mkdir -p "$RELEASE"
 
             rm -rf "$WORKSPACE"
+
+
+            # ==================================================
+            # Automatic Port
+            #
+            # If "port" is not set in the service file:
+            #   1) reuse the port of the existing container
+            #   2) otherwise take the first free port in the range
+            # ==================================================
+            if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "angular" || "$TYPE" == "html" ]] \
+               && [ -z "$APP_PORT" ]; then
+
+              APP_PORT=$(docker inspect \
+                -f '{{range $k, $v := .HostConfig.PortBindings}}{{range $v}}{{.HostPort}} {{end}}{{end}}' \
+                "$CONTAINER_NAME" 2>/dev/null \
+                | awk '{print $1}' || true)
+
+
+              if [ -z "$APP_PORT" ]; then
+
+                USED_PORTS=$(
+                  {
+                    ss -ltn | awk 'NR>1 {print $4}' | awk -F: '{print $NF}'
+
+                    docker ps -aq | xargs -r docker inspect \
+                      -f '{{range $k, $v := .HostConfig.PortBindings}}{{range $v}}{{.HostPort}} {{end}}{{end}}' \
+                      | tr ' ' '\n'
+                  } | grep -E '^[0-9]+$' | sort -u
+                )
+
+                for P in $(seq "$PORT_START" "$PORT_END"); do
+                  if ! grep -qx "$P" <<< "$USED_PORTS"; then
+                    APP_PORT="$P"
+                    break
+                  fi
+                done
+
+              fi
+
+
+              if [ -z "$APP_PORT" ]; then
+                echo "ERROR: No free port between $PORT_START and $PORT_END"
+                exit 1
+              fi
+
+            fi
+
+
+            echo "Environment : $ENV"
+            echo "Service     : $SERVICE"
+            echo "Repository  : $REPO"
+            echo "Path        : ${PROJECT_PATH:-/}"
+            echo "Tag         : $TAG"
+            echo "Type        : $TYPE"
+            echo "Port        : ${APP_PORT:-none}"
+
+
+            # ==================================================
+            # Secrets From Service File
+
+            SECRET_ARGS=()
+
+            for S in $SECRET_NAMES; do
+
+              KEY=$(echo "$S" | tr '[:lower:]' '[:upper:]')
+
+              VALUE=$(echo "$ALL_SECRETS" | yq -p=json ".${KEY} // \"\"")
+
+              if [ -z "$VALUE" ]; then
+                echo "ERROR: Secret '$KEY' not found in GitHub secrets"
+                exit 1
+              fi
+
+              SECRET_ARGS+=(-e "${S}=${VALUE}")
+
+              echo "Secret      : $S"
+
+            done
 
 
             # ==================================================
@@ -258,21 +351,23 @@ jobs:
 
 
             # ==================================================
+            # Go To Project Folder (if "path" is set)
+            # ==================================================
+            if [ -n "$PROJECT_PATH" ]; then
+
+              if [ ! -d "$WORKSPACE/$PROJECT_PATH" ]; then
+                echo "ERROR: Path '$PROJECT_PATH' not found in $REPO"
+                exit 1
+              fi
+
+              cd "$WORKSPACE/$PROJECT_PATH"
+
+            fi
+
+
+            # ==================================================
             # Create Dynamic Database Variable Names
             # ==================================================
-
-            # Example:
-            #
-            # Landing_Page
-            # ↓
-            # LANDING_PAGE
-            #
-            # dev
-            # ↓
-            # DEV
-            #
-            # DEV_LANDING_PAGE_DATABASE_NAME
-
             SERVICE_KEY=$(echo "$SERVICE" \
               | tr '[:lower:]' '[:upper:]' \
               | tr '-' '_')
@@ -289,30 +384,11 @@ jobs:
             DB_PASS_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_PASSWORD"
 
 
-            echo ""
-            echo "========================================"
-            echo "Database Configuration"
-            echo "========================================"
-
-            echo "Environment: $ENV"
-            echo "Service: $SERVICE"
-            echo "Service Type: $TYPE"
-
-            echo "DB Name Variable: $DB_NAME_VAR"
-            echo "DB User Variable: $DB_USER_VAR"
-            echo "DB Password Variable: $DB_PASS_VAR"
-
-
             # ==================================================
             # Database Configuration
-            #
-            # Only services that actually require a database
-            # will load and validate database variables.
             # ==================================================
-
             DB_HOST="$DATABASE_HOST"
             DB_HOST_JAVA="$DATABASE_HOST_JAVA"
-            SMSTOKEN="$SMSTOKEN"
 
 
             if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "docker" ]]; then
@@ -322,56 +398,30 @@ jobs:
               DB_PASS="${!DB_PASS_VAR:-}"
 
 
-              echo ""
-              echo "Database is required for service type: $TYPE"
-
-
-              # ==================================================
-              # Validate Database Host
-              # ==================================================
               if [ -z "$DB_HOST" ]; then
                 echo "ERROR: DATABASE_HOST is empty"
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Name
-              # ==================================================
               if [ -z "$DB_NAME" ]; then
-                echo "ERROR: Database name is empty."
-                echo "Expected variable: $DB_NAME_VAR"
+                echo "ERROR: Database name is empty. Expected variable: $DB_NAME_VAR"
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Username
-              # ==================================================
               if [ -z "$DB_USER" ]; then
-                echo "ERROR: Database username is empty."
-                echo "Expected variable: $DB_USER_VAR"
+                echo "ERROR: Database username is empty. Expected variable: $DB_USER_VAR"
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Password
-              # ==================================================
               if [ -z "$DB_PASS" ]; then
-                echo "ERROR: Database password is empty."
-                echo "Expected variable: $DB_PASS_VAR"
+                echo "ERROR: Database password is empty. Expected variable: $DB_PASS_VAR"
                 exit 1
               fi
 
 
               echo "Database configuration loaded successfully."
 
-
             else
-
-              echo ""
-              echo "Service type '$TYPE' does not require database configuration."
 
               DB_NAME=""
               DB_USER=""
@@ -383,7 +433,6 @@ jobs:
             # ==================================================
             # Deploy Based On Service Type
             # ==================================================
-
             echo ""
             echo "========================================"
             echo "Deploying $SERVICE in $ENV"
@@ -398,37 +447,11 @@ jobs:
               # ==================================================
               java)
 
-                echo "Building Java project..."
-
-
                 mvn -B clean package -DskipTests
 
+                docker build -t "${IMAGE_NAME}:${TAG}" .
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
-
-
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-
-
-                echo "Building Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-
-                echo "Starting container..."
-
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
@@ -439,9 +462,8 @@ jobs:
                   -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST_JAVA}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
-                  -e SMSTOKEN="$SMSTOKEN" \
+                  "${SECRET_ARGS[@]}" \
                   "${IMAGE_NAME}:${TAG}"
-
 
                 ;;
 
@@ -451,43 +473,26 @@ jobs:
               # ==================================================
               dotnet)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
+                docker build -t "${IMAGE_NAME}:${TAG}" .
 
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-
-
-                echo "Building .NET Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-
-                echo "Starting .NET container..."
-
+                UPLOAD_ARGS=()
+                if [ -n "$UPLOAD_SERVICE" ]; then
+                  UPLOAD_ARGS=(-v "/var/www/uploads/${UPLOAD_SERVICE}:/var/www/uploads/${UPLOAD_SERVICE}")
+                fi
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
                   --restart unless-stopped \
                   --network center-network \
                   -p "${APP_PORT}:8080" \
-                  -v "/var/www/uploads/${UPLOAD_SERVICE}:/var/www/uploads/${UPLOAD_SERVICE}" \
+                  "${UPLOAD_ARGS[@]}" \
                   -e ASPNETCORE_ENVIRONMENT="$ENV" \
                   -e ASPNETCORE_URLS="http://+:8080" \
                   -e ConnectionStrings__DefaultConnection="Server=${DB_HOST};Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASS};TrustServerCertificate=True;" \
+                  "${SECRET_ARGS[@]}" \
                   "${IMAGE_NAME}:${TAG}"
-
 
                 ;;
 
@@ -499,12 +504,9 @@ jobs:
 
                 npm ci
 
-
                 npm run build || true
 
-
                 rsync -a . "$RELEASE"
-
 
                 ;;
 
@@ -516,76 +518,43 @@ jobs:
 
                 pip install -r requirements.txt || true
 
-
                 rsync -a . "$RELEASE"
-
 
                 ;;
 
 
               # ==================================================
-              # ANGULAR
-              #
-              # Angular is built inside Docker.
-              # No npm install or npm build is executed here.
+              # ANGULAR (built inside Docker)
               # ==================================================
-               angular)
-              
-                  IMAGE_NAME=$(echo "$SERVICE" \
-                    | tr '[:upper:]' '[:lower:]')
-              
-                  CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-              
-                  echo "Building Angular Docker image..."
-                  echo "Environment: ${ENV}"
-              
-                  docker build \
-                    --build-arg APP_ENV="${ENV}" \
-                    -t "${IMAGE_NAME}:${TAG}" \
-                    .
-              
-                  echo "Removing old Angular container..."
-              
-                  docker rm -f \
-                    "$CONTAINER_NAME" \
-                    2>/dev/null || true
-              
-                  echo "Starting Angular container..."
-              
-                  docker run -d \
-                    --name "$CONTAINER_NAME" \
-                    --restart unless-stopped \
-                    --network center-network \
-                    --add-host=host.docker.internal:host-gateway \
-                    -p "${APP_PORT}:80" \
-                    "${IMAGE_NAME}:${TAG}"
-              
-                  ;;
+              angular)
+
+                docker build \
+                  --build-arg APP_ENV="${ENV}" \
+                  -t "${IMAGE_NAME}:${TAG}" \
+                  .
+
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+                docker run -d \
+                  --name "$CONTAINER_NAME" \
+                  --restart unless-stopped \
+                  --network center-network \
+                  --add-host=host.docker.internal:host-gateway \
+                  -p "${APP_PORT}:80" \
+                  "${SECRET_ARGS[@]}" \
+                  "${IMAGE_NAME}:${TAG}"
+
+                ;;
+
 
               # ==================================================
-              # STATIC HTML
-              #
-              # Served by nginx container.
-              # No build step required.
+              # STATIC HTML (nginx)
               # ==================================================
               html)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
-
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-
-                echo "Copying HTML files..."
-
                 rsync -a --delete --exclude '.git' . "$RELEASE"
 
-                echo "Removing old HTML container..."
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-                echo "Starting HTML container (nginx)..."
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
@@ -596,36 +565,16 @@ jobs:
                   nginx:alpine
 
                 ;;
+
+
               # ==================================================
               # GENERIC DOCKER SERVICE
               # ==================================================
               docker)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
+                docker build -t "${IMAGE_NAME}:${TAG}" .
 
-
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-
-
-                echo "Building Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-
-                echo "Starting Docker container..."
-
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
                 docker run -d \
                   --name "$CONTAINER_NAME" \
@@ -635,8 +584,8 @@ jobs:
                   -e DATABASE_NAME="$DB_NAME" \
                   -e DATABASE_USERNAME="$DB_USER" \
                   -e DATABASE_PASSWORD="$DB_PASS" \
+                  "${SECRET_ARGS[@]}" \
                   "${IMAGE_NAME}:${TAG}"
-
 
                 ;;
 
@@ -657,8 +606,10 @@ jobs:
 
             echo ""
             echo "========================================"
-            echo "SUCCESS: $SERVICE deployed successfully"
+            echo "SUCCESS: $SERVICE deployed on port ${APP_PORT:-none}"
             echo "========================================"
+
+            echo "- **$ENV/$SERVICE** → port \`${APP_PORT:-none}\`" >> "$GITHUB_STEP_SUMMARY"
 
 
           done <<< "${{ steps.changes.outputs.files }}"

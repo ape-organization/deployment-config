@@ -75,6 +75,8 @@ jobs:
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
           DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
           SMSTOKEN: ${{secrets.SMSTOKEN}}
+          api-token: ${{secrets.APP_MAIL_API_TOKEN}}
+          mailbox-resource-id: ${{secrets.APP_MAIL_MAILBOX_RESOURCE_ID}}
 
 
           # ==================================================
@@ -150,7 +152,7 @@ jobs:
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
-                    # ==================================================
+          # ==================================================
           # DEV - SMS
           # ==================================================
           DEV_SMS_DATABASE_NAME: ${{ vars.DEV_SMS_DATABASE_NAME }}
@@ -172,6 +174,12 @@ jobs:
           PROD_SMS_DATABASE_NAME: ${{ vars.PROD_SMS_DATABASE_NAME }}
           PROD_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PROD_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+
+          # DEV - JS Message Reporting
+          DEV_JS_MESSAGE_REPORTING_DATABASE_NAME: ${{ vars.DEV_JS_MESSAGE_REPORTING_DATABASE_NAME }}
+          DEV_JS_MESSAGE_REPORTING_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_JS_MESSAGE_REPORTING_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
         run: |
@@ -345,6 +353,11 @@ jobs:
             DB_HOST="$DATABASE_HOST"
             DB_HOST_JAVA="$DATABASE_HOST_JAVA"
             SMSTOKEN="$SMSTOKEN"
+            api-token="$api-token"
+            mailbox-resource-id="$mailbox-resource-id"
+            
+            
+            
 
 
             if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "docker" ]]; then
@@ -472,6 +485,8 @@ jobs:
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
                   -e SMSTOKEN="$SMSTOKEN" \
+                  -e mailbox-resource-id="$mailbox-resource-id" \
+                  -e api-token="$api-token" \
                   "${IMAGE_NAME}:${TAG}"
 
 

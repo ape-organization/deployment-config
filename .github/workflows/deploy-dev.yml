@@ -75,8 +75,8 @@ jobs:
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
           DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
           SMSTOKEN: ${{secrets.SMSTOKEN}}
-          api-token: ${{secrets.APP_MAIL_API_TOKEN}}
-          mailbox-resource-id: ${{secrets.APP_MAIL_MAILBOX_RESOURCE_ID}}
+          api_token: ${{secrets.APP_MAIL_API_TOKEN}}
+          mailbox_resource_id: ${{secrets.APP_MAIL_MAILBOX_RESOURCE_ID}}
 
 
           # ==================================================
@@ -353,8 +353,8 @@ jobs:
             DB_HOST="$DATABASE_HOST"
             DB_HOST_JAVA="$DATABASE_HOST_JAVA"
             SMSTOKEN="$SMSTOKEN"
-            api-token="$api-token"
-            mailbox-resource-id="$mailbox-resource-id"
+            api_token="$api_token"
+            mailbox_resource_id="$mailbox_resource_id"
             
             
             
@@ -485,8 +485,8 @@ jobs:
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
                   -e SMSTOKEN="$SMSTOKEN" \
-                  -e mailbox-resource-id="$mailbox-resource-id" \
-                  -e api-token="$api-token" \
+                  -e mailbox-resource-id="$mailbox_resource_id" \
+                  -e api-token="$api_token" \
                   "${IMAGE_NAME}:${TAG}"
 
 

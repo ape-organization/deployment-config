@@ -70,6 +70,8 @@ jobs:
           # ==================================================
           # Database Host
           # ==================================================
+          DEPLOY_SERVICES: ${{ secrets.DEPLOY_SERVICES }}
+          CHANGED_FILES: ${{ steps.changes.outputs.files }}
           DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
           DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
           SMSTOKEN: ${{secrets.SMSTOKEN}}
@@ -175,6 +177,12 @@ jobs:
         run: |
 
           set -e
+          set +x
+
+          if [ -z "${DEPLOY_SERVICES:-}" ]; then
+            echo "ERROR: GitHub Actions secret DEPLOY_SERVICES is missing."
+            exit 1
+          fi
 
 
           # ==================================================
@@ -183,6 +191,11 @@ jobs:
           while IFS= read -r FILE; do
 
             [ -z "$FILE" ] && continue
+
+            # Return to the config repo before processing each service.
+            cd "$GITHUB_WORKSPACE"
+            [[ "$FILE" =~ ^(dev|preprod|prod)/[^/]+[.]yml$ ]] || continue
+            [ -f "$FILE" ] || continue
 
 
             echo ""
@@ -243,9 +256,28 @@ jobs:
             echo "Downloading repository: $REPO"
 
 
-            git clone \
-              "https://github.com/${REPO}.git" \
-              "$WORKSPACE"
+            # Authenticate without putting the token in the URL or Git config.
+            (
+              set +x
+              ASKPASS_FILE=$(mktemp)
+              trap 'rm -f "$ASKPASS_FILE"' EXIT
+
+              cat > "$ASKPASS_FILE" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$DEPLOY_SERVICES" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+
+              chmod 700 "$ASKPASS_FILE"
+              GIT_ASKPASS="$ASKPASS_FILE" \
+              GIT_TERMINAL_PROMPT=0 \
+              git -c credential.helper= clone \
+                "https://github.com/${REPO}.git" \
+                "$WORKSPACE"
+            )
 
 
             cd "$WORKSPACE"
@@ -661,4 +693,4 @@ jobs:
             echo "========================================"
 
 
-          done <<< "${{ steps.changes.outputs.files }}"
+          done <<< "$CHANGED_FILES"

@@ -77,6 +77,13 @@ jobs:
           SMSTOKEN: ${{secrets.SMSTOKEN}}
           api_token: ${{secrets.APP_MAIL_API_TOKEN}}
           mailbox_resource_id: ${{secrets.APP_MAIL_MAILBOX_RESOURCE_ID}}
+          BROADNET_ACCESS_KEY: ${{secrets.BROADNET_ACCESS_KEY}}
+          BROADNET_USERNAME: ${{secrets.BROADNET_USERNAME}}
+          BROADNET_PASSWORD: ${{secrets.BROADNET_PASSWORD}}
+          BROADNET_SMPP_PASSWORD: ${{secrets.BROADNET_SMPP_PASSWORD}}
+          BROADNET_SMPP_SYSTEM_ID: ${{secrets.BROADNET_SMPP_SYSTEM_ID}}
+          RABBITMQ_USERNAME: ${{secrets.RABBITMQ_USERNAME}}
+          RABBITMQ_PASSWORD: ${{secrets.RABBITMQ_PASSWORD}}
 
 
           # ==================================================
@@ -355,6 +362,13 @@ jobs:
             SMSTOKEN="$SMSTOKEN"
             api_token="$api_token"
             mailbox_resource_id="$mailbox_resource_id"
+            BROADNET_ACCESS_KEY= "$secrets.BROADNET_ACCESS_KEY"
+            BROADNET_USERNAME= "$secrets.BROADNET_USERNAME"
+            BROADNET_PASSWORD= "$secrets.BROADNET_PASSWORD"
+            BROADNET_SMPP_PASSWORD= "$secrets.BROADNET_SMPP_PASSWORD"
+            BROADNET_SMPP_SYSTEM_ID= "$secrets.BROADNET_SMPP_SYSTEM_ID"
+            RABBITMQ_USERNAME= "$secrets.RABBITMQ_USERNAME"
+            RABBITMQ_PASSWORD= "$secrets.RABBITMQ_PASSWORD"
             
             
             
@@ -487,6 +501,13 @@ jobs:
                   -e SMSTOKEN="$SMSTOKEN" \
                   -e mailbox-resource-id="$mailbox_resource_id" \
                   -e api-token="$api_token" \
+                  -e BROADNET_ACCESS_KEY="$secrets.BROADNET_ACCESS_KEY" \
+                  -e BROADNET_USERNAME="$secrets.BROADNET_USERNAME" \
+                  -e BROADNET_PASSWORD="$secrets.BROADNET_PASSWORD" \
+                  -e BROADNET_SMPP_PASSWORD="$secrets.BROADNET_SMPP_PASSWORD" \
+                  -e BROADNET_SMPP_SYSTEM_ID="$secrets.BROADNET_SMPP_SYSTEM_ID" \
+                  -e RABBITMQ_USERNAME="$secrets.RABBITMQ_USERNAME" \
+                  -e RABBITMQ_PASSWORD="$secrets.RABBITMQ_PASSWORD" \
                   "${IMAGE_NAME}:${TAG}"
 
 

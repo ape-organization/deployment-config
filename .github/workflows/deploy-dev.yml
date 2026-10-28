@@ -492,8 +492,8 @@ jobs:
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
                   -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
                   -e SMSTOKEN="$SMSTOKEN" \
-                  -e mailbox-resource-id="$mailbox_resource_id" \
-                  -e api-token="$api_token" \
+                  -e APP_MAIL_MAILBOX_RESOURCE_ID="$mailbox_resource_id" \
+                  -e APP_MAIL_API_TOKEN="$api_token" \
                   -e BROADNET_ACCESS_KEY="$BROADNET_ACCESS_KEY" \
                   -e BROADNET_USERNAME="$BROADNET_USERNAME" \
                   -e BROADNET_PASSWORD="$BROADNET_PASSWORD" \

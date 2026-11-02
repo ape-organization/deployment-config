@@ -189,6 +189,13 @@ jobs:
           DEV_JS_MESSAGE_REPORTING_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
+          
+          # Prod - JS Message Reporting
+          PROD_JS_MESSAGE_REPORTING_DATABASE_NAME: ${{ vars.PROD_JS_MESSAGE_REPORTING_DATABASE_NAME }}
+          PROD_JS_MESSAGE_REPORTING_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_JS_MESSAGE_REPORTING_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+
         run: |
 
           set -e

@@ -1,5 +1,5 @@
-repo: ape-organization/restaurantAPI
-tag: 0.0.1
+repo: ape-organization/E-commerceAPI
+tag: 0.0.60
 type: dotnet
 port: 8185
 uploadPath: E_Commerce

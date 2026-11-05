@@ -247,6 +247,11 @@ jobs:
             APP_PORT=$(yq e '.port' "$FILE")
             UPLOAD_SERVICE=$(yq e '.uploadPath' "$FILE")
 
+            # Optional (java services): a folder in the container to keep across deploys, and the
+            # service's own RabbitMQ vhost, so dev and prod do not share queues. Empty when absent.
+            DATA_DIR=$(yq e '.dataDir // ""' "$FILE")
+            RABBITMQ_VHOST=$(yq e '.rabbitmqVhost // ""' "$FILE")
+
 
             echo "Environment : $ENV"
             echo "Service     : $SERVICE"
@@ -254,6 +259,8 @@ jobs:
             echo "Tag         : $TAG"
             echo "Type        : $TYPE"
             echo "Port        : $APP_PORT"
+            echo "Data dir    : ${DATA_DIR:-none}"
+            echo "RabbitMQ vh : ${RABBITMQ_VHOST:-default}"
 
 
             # ==================================================
@@ -486,6 +493,25 @@ jobs:
                   2>/dev/null || true
 
 
+                # Optional per service, from its yml: a data folder kept across deploys
+                # (in /srv/<service>/<env>/data on the server), and its own RabbitMQ vhost.
+                EXTRA_ARGS=()
+
+                if [ -n "$DATA_DIR" ]; then
+                  HOST_DATA_DIR="/srv/$SERVICE/$ENV/data"
+                  if [ ! -d "$HOST_DATA_DIR" ]; then
+                    echo "ERROR: $HOST_DATA_DIR does not exist on the server."
+                    echo "Create it once: sudo mkdir -p $HOST_DATA_DIR"
+                    exit 1
+                  fi
+                  EXTRA_ARGS+=(-v "$HOST_DATA_DIR:$DATA_DIR")
+                fi
+
+                if [ -n "$RABBITMQ_VHOST" ]; then
+                  EXTRA_ARGS+=(-e RABBITMQ_VHOST="$RABBITMQ_VHOST")
+                fi
+
+
                 echo "Starting container..."
 
 
@@ -494,6 +520,7 @@ jobs:
                   --restart unless-stopped \
                   --network center-network \
                   -p "${APP_PORT}:8080" \
+                  "${EXTRA_ARGS[@]}" \
                   -e SPRING_PROFILES_ACTIVE="$ENV" \
                   -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST_JAVA}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
                   -e SPRING_DATASOURCE_USERNAME="$DB_USER" \

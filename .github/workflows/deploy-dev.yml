@@ -84,6 +84,8 @@ jobs:
           BROADNET_SMPP_SYSTEM_ID: ${{secrets.BROADNET_SMPP_SYSTEM_ID}}
           RABBITMQ_USERNAME: ${{secrets.RABBITMQ_USERNAME}}
           RABBITMQ_PASSWORD: ${{secrets.RABBITMQ_PASSWORD}}
+          APP_JWT_SECRET: ${{secrets.APP_JWT_SECRET}}
+          APP_TWO_FACTOR_ENCRYPTION_KEY: ${{secrets.APP_TWO_FACTOR_ENCRYPTION_KEY}}
 
 
           # ==================================================
@@ -535,6 +537,8 @@ jobs:
                   -e BROADNET_SMPP_SYSTEM_ID="$BROADNET_SMPP_SYSTEM_ID" \
                   -e RABBITMQ_USERNAME="$RABBITMQ_USERNAME" \
                   -e RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD" \
+                  -e APP_JWT_SECRET="$APP_JWT_SECRET" \
+                  -e APP_TWO_FACTOR_ENCRYPTION_KEY="$APP_TWO_FACTOR_ENCRYPTION_KEY" \
                   "${IMAGE_NAME}:${TAG}"
 
 

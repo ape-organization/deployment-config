@@ -91,25 +91,25 @@ jobs:
           # ==================================================
           # DEV - PinkyAura
           # ==================================================
-          DEV_PINKYAURA_DATABASE_NAME: ${{ vars.DEV_PinkyAura_DATABASE_NAME }}
-          DEV_PINKYAURA_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_PINKYAURA_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DEV_AVERAAPI_DATABASE_NAME: ${{ vars.DEV_Avera_DATABASE_NAME }}
+          DEV_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DEV_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
           # PREPROD - PinkyAura
           # ==================================================
-          PREPROD_PINKYAURA_DATABASE_NAME: ${{ vars.PREPROD_PinkyAura_DATABASE_NAME }}
-          PREPROD_PINKYAURA_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PREPROD_PINKYAURA_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          PREPROD_AVERAAPI_DATABASE_NAME: ${{ vars.PREPROD_Avera_DATABASE_NAME }}
+          PREPROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PREPROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
           # PROD - PinkyAura
           # ==================================================
-          PROD_PINKYAURA_DATABASE_NAME: ${{ vars.PROD_PinkyAura_DATABASE_NAME }}
-          PROD_PINKYAURA_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_PINKYAURA_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          PROD_AVERAAPI_DATABASE_NAME: ${{ vars.PROD_Avera_DATABASE_NAME }}
+          PROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           

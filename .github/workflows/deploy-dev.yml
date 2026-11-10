@@ -89,25 +89,25 @@ jobs:
 
 
           # ==================================================
-          # DEV - PinkyAura
+          # DEV - AVERA
           # ==================================================
-          DEV_AVERAAPI_DATABASE_NAME: ${{ vars.DEV_Avera_DATABASE_NAME }}
+          DEV_AVERAAPI_DATABASE_NAME: ${{ vars.DEV_AVERA_DATABASE_NAME }}
           DEV_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           DEV_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PREPROD - PinkyAura
+          # PREPROD - AVERA
           # ==================================================
-          PREPROD_AVERAAPI_DATABASE_NAME: ${{ vars.PREPROD_Avera_DATABASE_NAME }}
+          PREPROD_AVERAAPI_DATABASE_NAME: ${{ vars.PREPROD_AVERA_DATABASE_NAME }}
           PREPROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PREPROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
           # ==================================================
-          # PROD - PinkyAura
+          # PROD - AVERA
           # ==================================================
-          PROD_AVERAAPI_DATABASE_NAME: ${{ vars.PROD_Avera_DATABASE_NAME }}
+          PROD_AVERAAPI_DATABASE_NAME: ${{ vars.PROD_AVERA_DATABASE_NAME }}
           PROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           PROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 

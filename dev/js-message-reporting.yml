@@ -2,6 +2,7 @@ tag: 1.0.49
 repo: ape-organization/js-message-reporting
 type: java
 port: 8149
-dataDir: /app/data                                                                                                                      │ 24  # Actuator (health, Prometheus metrics); for Prometheus only, never publish it to t
-rabbitmqVhost: sms-dev
+dataDir: /app/data
 
+# Actuator (health, Prometheus metrics)
+rabbitmqVhost: sms-dev

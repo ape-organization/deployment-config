@@ -8,9 +8,13 @@ on:
       - 'preprod/*.yml'
       - 'prod/*.yml'
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: self-hosted
+    timeout-minutes: 60
 
     steps:
 
@@ -24,16 +28,20 @@ jobs:
 
 
       # ==================================================
-      # Install yq
+      # Install yq (downloaded once, then reused)
       # ==================================================
       - name: Install yq
         run: |
+          set -euo pipefail
+
           mkdir -p "$HOME/bin"
 
-          wget -qO "$HOME/bin/yq" \
-            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
-
-          chmod +x "$HOME/bin/yq"
+          if [ ! -x "$HOME/bin/yq" ]; then
+            wget -qO "$HOME/bin/yq.tmp" \
+              https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+            chmod +x "$HOME/bin/yq.tmp"
+            mv "$HOME/bin/yq.tmp" "$HOME/bin/yq"
+          fi
 
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
@@ -43,20 +51,37 @@ jobs:
       # ==================================================
       - name: Detect Changed Files
         id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
+          set -euo pipefail
 
-          FILES=$(git diff --name-only \
-            "${{ github.event.before }}" \
-            "${{ github.sha }}")
+          # github.event.before is all zeros on a new branch and may be missing
+          # after a force push. Fall back to the previous commit.
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] \
+             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            BEFORE=$(git rev-parse -q --verify "${AFTER}~1" \
+              || git hash-object -t tree /dev/null)
+          fi
+
+          # Added / modified / renamed only: a deleted yml is not a deploy.
+          FILES=$(git diff --name-only --diff-filter=AMR "$BEFORE" "$AFTER" \
+            | grep -E '^(dev|preprod|prod)/[^/]+[.]yml$' || true)
 
           if [ -z "$FILES" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "files<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$FILES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "Changed service files:"
+          echo "$FILES"
+
+          {
+            echo "files<<CHANGED_FILES_EOF"
+            echo "$FILES"
+            echo "CHANGED_FILES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
 
       # ==================================================
@@ -67,140 +92,60 @@ jobs:
 
         env:
 
-          # ==================================================
-          # Database Host
-          # ==================================================
           DEPLOY_SERVICES: ${{ secrets.DEPLOY_SERVICES }}
           CHANGED_FILES: ${{ steps.changes.outputs.files }}
-          DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
-          DATABASE_HOST_JAVA : ${{ secrets.DATABASE_HOST_JAVA }}
-          SMSTOKEN: ${{secrets.SMSTOKEN}}
-          api_token: ${{secrets.APP_MAIL_API_TOKEN}}
-          mailbox_resource_id: ${{secrets.APP_MAIL_MAILBOX_RESOURCE_ID}}
-          BROADNET_ACCESS_KEY: ${{secrets.BROADNET_ACCESS_KEY}}
-          BROADNET_USERNAME: ${{secrets.BROADNET_USERNAME}}
-          BROADNET_PASSWORD: ${{secrets.BROADNET_PASSWORD}}
-          BROADNET_SMPP_PASSWORD: ${{secrets.BROADNET_SMPP_PASSWORD}}
-          BROADNET_SMPP_SYSTEM_ID: ${{secrets.BROADNET_SMPP_SYSTEM_ID}}
-          RABBITMQ_USERNAME: ${{secrets.RABBITMQ_USERNAME}}
-          RABBITMQ_PASSWORD: ${{secrets.RABBITMQ_PASSWORD}}
-          APP_JWT_SECRET: ${{secrets.APP_JWT_SECRET}}
-          APP_TWO_FACTOR_ENCRYPTION_KEY: ${{secrets.APP_TWO_FACTOR_ENCRYPTION_KEY}}
-
 
           # ==================================================
-          # DEV - AVERA
+          # Database (same host / login for every service today)
+          # ==================================================
+          DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+          DATABASE_HOST_JAVA: ${{ secrets.DATABASE_HOST_JAVA }}
+          DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+          # ==================================================
+          # Application secrets (java services)
+          # ==================================================
+          SMSTOKEN: ${{ secrets.SMSTOKEN }}
+          APP_MAIL_API_TOKEN: ${{ secrets.APP_MAIL_API_TOKEN }}
+          APP_MAIL_MAILBOX_RESOURCE_ID: ${{ secrets.APP_MAIL_MAILBOX_RESOURCE_ID }}
+          BROADNET_ACCESS_KEY: ${{ secrets.BROADNET_ACCESS_KEY }}
+          BROADNET_USERNAME: ${{ secrets.BROADNET_USERNAME }}
+          BROADNET_PASSWORD: ${{ secrets.BROADNET_PASSWORD }}
+          BROADNET_SMPP_PASSWORD: ${{ secrets.BROADNET_SMPP_PASSWORD }}
+          BROADNET_SMPP_SYSTEM_ID: ${{ secrets.BROADNET_SMPP_SYSTEM_ID }}
+          RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+          APP_TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.APP_TWO_FACTOR_ENCRYPTION_KEY }}
+
+          # ==================================================
+          # Database names: <ENV>_<SERVICE>_DATABASE_NAME
+          # (SERVICE = yml file name, upper case, '-' -> '_')
           # ==================================================
           DEV_AVERAAPI_DATABASE_NAME: ${{ vars.DEV_AVERA_DATABASE_NAME }}
-          DEV_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PREPROD - AVERA
-          # ==================================================
           PREPROD_AVERAAPI_DATABASE_NAME: ${{ vars.PREPROD_AVERA_DATABASE_NAME }}
-          PREPROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PREPROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PROD - AVERA
-          # ==================================================
           PROD_AVERAAPI_DATABASE_NAME: ${{ vars.PROD_AVERA_DATABASE_NAME }}
-          PROD_AVERAAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_AVERAAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
-
-          
-          # ==================================================
-          # DEV - Lily
-          # ==================================================
           DEV_LILLYAPI_DATABASE_NAME: ${{ vars.DEV_LILLYAPI_DATABASE_NAME }}
-          DEV_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PREPROD - Lily
-          # ==================================================
           PREPROD_LILLYAPI_DATABASE_NAME: ${{ vars.PREPROD_LILLYAPI_DATABASE_NAME }}
-          PREPROD_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PREPROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PROD - Lily
-          # ==================================================
           PROD_LILLYAPI_DATABASE_NAME: ${{ vars.PROD_LILLYAPI_DATABASE_NAME }}
-          PROD_LILLYAPI_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_LILLYAPI_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
-
-          # ==================================================
-          # DEV - STUDENTS CENTER MANAGEMENT
-          # ==================================================
           DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.DEV_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PREPROD - STUDENTS CENTER MANAGEMENT
-          # ==================================================
           PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PREPROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PROD - STUDENTS CENTER MANAGEMENT
-          # ==================================================
           PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME: ${{ vars.PROD_STUDENTSCENTERMANAGEMENT_DATABASE_NAME }}
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_STUDENTSCENTERMANAGEMENT_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
-
-          # ==================================================
-          # DEV - SMS
-          # ==================================================
           DEV_SMS_DATABASE_NAME: ${{ vars.DEV_SMS_DATABASE_NAME }}
-          DEV_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PREPROD - SMS
-          # ==================================================
           PREPROD_SMS_DATABASE_NAME: ${{ vars.PREPROD_SMS_DATABASE_NAME }}
-          PREPROD_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PREPROD_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          # ==================================================
-          # PROD - SMS
-          # ==================================================
           PROD_SMS_DATABASE_NAME: ${{ vars.PROD_SMS_DATABASE_NAME }}
-          PROD_SMS_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_SMS_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
-
-          # DEV - JS Message Reporting
           DEV_JS_MESSAGE_REPORTING_DATABASE_NAME: ${{ vars.DEV_JS_MESSAGE_REPORTING_DATABASE_NAME }}
-          DEV_JS_MESSAGE_REPORTING_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          DEV_JS_MESSAGE_REPORTING_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-
-
-          
-          # Prod - JS Message Reporting
           PROD_JS_MESSAGE_REPORTING_DATABASE_NAME: ${{ vars.PROD_JS_MESSAGE_REPORTING_DATABASE_NAME }}
-          PROD_JS_MESSAGE_REPORTING_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-          PROD_JS_MESSAGE_REPORTING_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
 
         run: |
 
-          set -e
+          set -euo pipefail
           set +x
 
           if [ -z "${DEPLOY_SERVICES:-}" ]; then
@@ -208,18 +153,168 @@ jobs:
             exit 1
           fi
 
+          export DOCKER_BUILDKIT=1
+
+          # One deploy at a time on this server. Later runs wait in line here
+          # instead of racing on the same container.
+          exec 9>/tmp/deploy-services.lock
+          flock 9
+
 
           # ==================================================
-          # Process Changed Files
+          # Git authentication (token never in URL, args or git config)
           # ==================================================
-          while IFS= read -r FILE; do
+          ASKPASS_FILE=$(mktemp -p "${RUNNER_TEMP:-/tmp}")
+          trap 'rm -f "$ASKPASS_FILE"' EXIT
 
-            [ -z "$FILE" ] && continue
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'case "$1" in' \
+            '  *Username*) echo x-access-token ;;' \
+            '  *Password*) printf "%s\n" "$DEPLOY_SERVICES" ;;' \
+            '  *) exit 1 ;;' \
+            'esac' > "$ASKPASS_FILE"
 
-            # Return to the config repo before processing each service.
+          chmod 700 "$ASKPASS_FILE"
+
+          git_auth() {
+            GIT_ASKPASS="$ASKPASS_FILE" GIT_TERMINAL_PROMPT=0 \
+              git -c credential.helper= -c advice.detachedHead=false "$@"
+          }
+
+
+          # ==================================================
+          # Image helpers
+          # ==================================================
+
+          # True when the image already exists AND was built from this commit.
+          # Promoting the same tag dev -> preprod -> prod then skips the build.
+          image_is_current() {
+            local have
+            have=$(docker image inspect \
+              -f '{{ index .Config.Labels "deploy.revision" }}' "$1" 2>/dev/null || true)
+            [ "$have" = "$COMMIT" ]
+          }
+
+          # build_image <image ref> [extra docker build args...]
+          build_image() {
+            local ref="$1"
+            shift
+            docker build --label "deploy.revision=${COMMIT}" "$@" -t "$ref" .
+          }
+
+          # Remove every image of this service that no container uses any more.
+          # Without -f, docker refuses to remove an image that is in use, so the
+          # image of the running container (any environment) is always kept.
+          cleanup_images() {
+            docker images "$1" --format '{{.Repository}}:{{.Tag}}' \
+              | grep -v ':<none>$' \
+              | xargs -r -n1 docker rmi >/dev/null 2>&1 || true
+            docker image prune -f >/dev/null 2>&1 || true
+          }
+
+
+          # ==================================================
+          # Container helpers
+          # ==================================================
+
+          # wait_healthy <container> <health url or empty>
+          # Fails as soon as the container exits or restarts.
+          #   - healthPath set in the yml : wait for HTTP 2xx (max 120s)
+          #   - image has a HEALTHCHECK   : wait for "healthy"  (max 120s)
+          #   - neither                   : must stay up 20s without a restart
+          wait_healthy() {
+            local name="$1" url="$2" i state health
+
+            for i in $(seq 1 60); do
+              sleep 2
+
+              state=$(docker inspect -f '{{.State.Status}}/{{.RestartCount}}' "$name" 2>/dev/null || echo gone)
+
+              if [ "$state" != "running/0" ]; then
+                echo "Container state: $state"
+                return 1
+              fi
+
+              if [ -n "$url" ]; then
+                if curl -fs -o /dev/null --max-time 3 "$url"; then
+                  return 0
+                fi
+                continue
+              fi
+
+              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$name" 2>/dev/null || echo none)
+
+              case "$health" in
+                healthy) return 0 ;;
+                unhealthy) echo "Container is unhealthy"; return 1 ;;
+                none) if [ "$i" -ge 10 ]; then return 0; fi ;;
+              esac
+            done
+
+            echo "Timed out waiting for $name to become healthy"
+            return 1
+          }
+
+          # swap_container <name> <health url or empty> <docker run args... image>
+          #
+          # The old container is stopped and kept as <name>-old until the new one
+          # is confirmed up, then it is deleted. If the new one fails, it is
+          # removed and the old one is started again (automatic rollback).
+          swap_container() {
+            local name="$1" url="$2"
+            shift 2
+            local old="${name}-old"
+
+            docker rm -f "$old" >/dev/null 2>&1 || true
+
+            if docker container inspect "$name" >/dev/null 2>&1; then
+              echo "Stopping current container (kept as $old for rollback)..."
+              docker stop "$name" >/dev/null
+              docker rename "$name" "$old"
+            fi
+
+            echo "Starting new container..."
+
+            if docker run -d --name "$name" "$@" >/dev/null \
+               && wait_healthy "$name" "$url"; then
+              echo "New container is up. Deleting old container..."
+              docker rm -f "$old" >/dev/null 2>&1 || true
+              return 0
+            fi
+
+            echo "ERROR: new container failed to start. Last log lines:"
+            docker logs --tail 80 "$name" 2>&1 || true
+            docker rm -f "$name" >/dev/null 2>&1 || true
+
+            if docker container inspect "$old" >/dev/null 2>&1; then
+              echo "Rolling back to the previous container..."
+              docker rename "$old" "$name"
+              docker start "$name" >/dev/null
+            fi
+
+            return 1
+          }
+
+          require_port() {
+            if ! [[ "$APP_PORT" =~ ^[0-9]{2,5}$ ]]; then
+              echo "ERROR: 'port' is missing or invalid in $FILE"
+              exit 1
+            fi
+          }
+
+
+          # ==================================================
+          # Deploy one service file
+          # ==================================================
+          deploy_one() {
+
+            FILE="$1"
+
             cd "$GITHUB_WORKSPACE"
-            [[ "$FILE" =~ ^(dev|preprod|prod)/[^/]+[.]yml$ ]] || continue
-            [ -f "$FILE" ] || continue
+
+            [[ "$FILE" =~ ^(dev|preprod|prod)/[A-Za-z0-9][A-Za-z0-9_.-]*[.]yml$ ]] || return 0
+            [ -f "$FILE" ] || return 0
 
 
             echo ""
@@ -228,31 +323,57 @@ jobs:
             echo "========================================"
 
 
-            # ==================================================
-            # Environment
-            # ==================================================
-            ENV=$(echo "$FILE" | cut -d'/' -f1)
-
-
-            # ==================================================
-            # Service Name
-            # ==================================================
+            ENV="${FILE%%/*}"
             SERVICE=$(basename "$FILE" .yml)
 
 
             # ==================================================
             # Read YAML Configuration
             # ==================================================
-            TAG=$(yq e '.tag' "$FILE")
-            REPO=$(yq e '.repo' "$FILE")
-            TYPE=$(yq e '.type' "$FILE")
-            APP_PORT=$(yq e '.port' "$FILE")
-            UPLOAD_SERVICE=$(yq e '.uploadPath' "$FILE")
+            TAG=$(yq e '.tag // ""' "$FILE")
+            REPO=$(yq e '.repo // ""' "$FILE")
+            TYPE=$(yq e '.type // ""' "$FILE")
+            APP_PORT=$(yq e '.port // ""' "$FILE")
+            UPLOAD_SERVICE=$(yq e '.uploadPath // ""' "$FILE")
 
             # Optional (java services): a folder in the container to keep across deploys, and the
             # service's own RabbitMQ vhost, so dev and prod do not share queues. Empty when absent.
             DATA_DIR=$(yq e '.dataDir // ""' "$FILE")
             RABBITMQ_VHOST=$(yq e '.rabbitmqVhost // ""' "$FILE")
+
+            # Optional (any container type): HTTP path that answers 2xx when the app is
+            # ready, e.g. /actuator/health. The deploy waits for it before deleting the
+            # old container.
+            HEALTH_PATH=$(yq e '.healthPath // ""' "$FILE")
+
+
+            # These values end up in paths, image names and docker arguments.
+            if ! [[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,100}$ ]]; then
+              echo "ERROR: 'tag' is missing or invalid in $FILE: '$TAG'"
+              exit 1
+            fi
+
+            if ! [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              echo "ERROR: 'repo' must be owner/name in $FILE: '$REPO'"
+              exit 1
+            fi
+
+            if [ -n "$UPLOAD_SERVICE" ] \
+               && { ! [[ "$UPLOAD_SERVICE" =~ ^[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$UPLOAD_SERVICE" == *..* ]]; }; then
+              echo "ERROR: invalid 'uploadPath' in $FILE"
+              exit 1
+            fi
+
+            if [ -n "$DATA_DIR" ] \
+               && { ! [[ "$DATA_DIR" =~ ^/[A-Za-z0-9_./-]+$ ]] || [[ "$DATA_DIR" == *..* ]]; }; then
+              echo "ERROR: 'dataDir' must be an absolute path in $FILE"
+              exit 1
+            fi
+
+            if [ -n "$HEALTH_PATH" ] && ! [[ "$HEALTH_PATH" =~ ^/[A-Za-z0-9_./?=\&-]*$ ]]; then
+              echo "ERROR: invalid 'healthPath' in $FILE"
+              exit 1
+            fi
 
 
             echo "Environment : $ENV"
@@ -260,110 +381,62 @@ jobs:
             echo "Repository  : $REPO"
             echo "Tag         : $TAG"
             echo "Type        : $TYPE"
-            echo "Port        : $APP_PORT"
+            echo "Port        : ${APP_PORT:-none}"
             echo "Data dir    : ${DATA_DIR:-none}"
             echo "RabbitMQ vh : ${RABBITMQ_VHOST:-default}"
+            echo "Health path : ${HEALTH_PATH:-none}"
 
 
             # ==================================================
-            # Paths
+            # Paths and names
             # ==================================================
             BASE="/home/Center-management/$ENV/$SERVICE"
-
             RELEASE="$BASE/releases/$TAG"
+            WORKSPACE="${RUNNER_TEMP:-/tmp}/build/$ENV-$SERVICE-$TAG"
 
-            WORKSPACE="/tmp/build/$SERVICE-$TAG"
+            IMAGE_NAME="${SERVICE,,}"
+            CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+            IMAGE_REF="${IMAGE_NAME}:${TAG}"
 
+            HEALTH_URL=""
+            if [ -n "$HEALTH_PATH" ] && [ -n "$APP_PORT" ]; then
+              HEALTH_URL="http://127.0.0.1:${APP_PORT}${HEALTH_PATH}"
+            fi
 
-            mkdir -p "$RELEASE"
-
-            rm -rf "$WORKSPACE"
-
-
-            # ==================================================
-            # Clone Repository
-            # ==================================================
-            echo ""
-            echo "Downloading repository: $REPO"
-
-
-            # Authenticate without putting the token in the URL or Git config.
-            (
-              set +x
-              ASKPASS_FILE=$(mktemp)
-              trap 'rm -f "$ASKPASS_FILE"' EXIT
-
-              cat > "$ASKPASS_FILE" <<'ASKPASS'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' 'x-access-token' ;;
-            *Password*) printf '%s\n' "$DEPLOY_SERVICES" ;;
-            *) exit 1 ;;
-          esac
-          ASKPASS
-
-              chmod 700 "$ASKPASS_FILE"
-              GIT_ASKPASS="$ASKPASS_FILE" \
-              GIT_TERMINAL_PROMPT=0 \
-              git -c credential.helper= clone \
-                "https://github.com/${REPO}.git" \
-                "$WORKSPACE"
+            # Same for every container. Log rotation stops container logs from
+            # filling the disk.
+            RUN_ARGS=(
+              --restart unless-stopped
+              --network center-network
+              --log-driver json-file
+              --log-opt max-size=20m
+              --log-opt max-file=5
             )
 
 
+            # ==================================================
+            # Clone Repository (only the requested tag, no history)
+            # ==================================================
+            echo ""
+            echo "Downloading repository: $REPO @ $TAG"
+
+            rm -rf "$WORKSPACE"
+            mkdir -p "$(dirname "$WORKSPACE")"
+
+            if ! git_auth clone --quiet --depth 1 --branch "$TAG" \
+                 "https://github.com/${REPO}.git" "$WORKSPACE"; then
+              # TAG is not a tag/branch name (e.g. a commit SHA): full clone.
+              echo "Shallow clone failed, falling back to a full clone..."
+              rm -rf "$WORKSPACE"
+              git_auth clone --quiet "https://github.com/${REPO}.git" "$WORKSPACE"
+              git -C "$WORKSPACE" -c advice.detachedHead=false checkout --quiet "$TAG"
+            fi
+
             cd "$WORKSPACE"
 
+            COMMIT=$(git rev-parse HEAD)
 
-            echo "Checking out tag: $TAG"
-
-
-            git checkout "$TAG"
-
-
-            # ==================================================
-            # Create Dynamic Database Variable Names
-            # ==================================================
-
-            # Example:
-            #
-            # Landing_Page
-            # ↓
-            # LANDING_PAGE
-            #
-            # dev
-            # ↓
-            # DEV
-            #
-            # DEV_LANDING_PAGE_DATABASE_NAME
-
-            SERVICE_KEY=$(echo "$SERVICE" \
-              | tr '[:lower:]' '[:upper:]' \
-              | tr '-' '_')
-
-
-            ENV_KEY=$(echo "$ENV" \
-              | tr '[:lower:]' '[:upper:]')
-
-
-            DB_NAME_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_NAME"
-
-            DB_USER_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_USERNAME"
-
-            DB_PASS_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_PASSWORD"
-
-
-            echo ""
-            echo "========================================"
-            echo "Database Configuration"
-            echo "========================================"
-
-            echo "Environment: $ENV"
-            echo "Service: $SERVICE"
-            echo "Service Type: $TYPE"
-
-            echo "DB Name Variable: $DB_NAME_VAR"
-            echo "DB User Variable: $DB_USER_VAR"
-            echo "DB Password Variable: $DB_PASS_VAR"
+            echo "Commit      : $COMMIT"
 
 
             # ==================================================
@@ -372,78 +445,51 @@ jobs:
             # Only services that actually require a database
             # will load and validate database variables.
             # ==================================================
+            SERVICE_KEY="${SERVICE^^}"
+            SERVICE_KEY="${SERVICE_KEY//-/_}"
+            ENV_KEY="${ENV^^}"
 
-            DB_HOST="$DATABASE_HOST"
-            DB_HOST_JAVA="$DATABASE_HOST_JAVA"
-            SMSTOKEN="$SMSTOKEN"
-            api_token="$api_token"
-            mailbox_resource_id="$mailbox_resource_id"
-            
-            
-            
+            DB_NAME_VAR="${ENV_KEY}_${SERVICE_KEY}_DATABASE_NAME"
 
+            DB_NAME=""
+            DB_USER=""
+            DB_PASS=""
 
             if [[ "$TYPE" == "java" || "$TYPE" == "dotnet" || "$TYPE" == "docker" ]]; then
 
               DB_NAME="${!DB_NAME_VAR:-}"
-              DB_USER="${!DB_USER_VAR:-}"
-              DB_PASS="${!DB_PASS_VAR:-}"
+              DB_USER="${DATABASE_USERNAME:-}"
+              DB_PASS="${DATABASE_PASSWORD:-}"
 
+              if [ "$TYPE" == "java" ]; then
+                DB_HOST_FOR_TYPE="${DATABASE_HOST_JAVA:-}"
+                DB_HOST_LABEL="DATABASE_HOST_JAVA"
+              else
+                DB_HOST_FOR_TYPE="${DATABASE_HOST:-}"
+                DB_HOST_LABEL="DATABASE_HOST"
+              fi
 
-              echo ""
-              echo "Database is required for service type: $TYPE"
-
-
-              # ==================================================
-              # Validate Database Host
-              # ==================================================
-              if [ -z "$DB_HOST" ]; then
-                echo "ERROR: DATABASE_HOST is empty"
+              if [ -z "$DB_HOST_FOR_TYPE" ]; then
+                echo "ERROR: $DB_HOST_LABEL is empty"
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Name
-              # ==================================================
               if [ -z "$DB_NAME" ]; then
                 echo "ERROR: Database name is empty."
-                echo "Expected variable: $DB_NAME_VAR"
+                echo "Expected variable: $DB_NAME_VAR (add it to the workflow env block)"
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Username
-              # ==================================================
-              if [ -z "$DB_USER" ]; then
-                echo "ERROR: Database username is empty."
-                echo "Expected variable: $DB_USER_VAR"
+              if [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
+                echo "ERROR: DATABASE_USERNAME / DATABASE_PASSWORD secret is empty."
                 exit 1
               fi
 
-
-              # ==================================================
-              # Validate Database Password
-              # ==================================================
-              if [ -z "$DB_PASS" ]; then
-                echo "ERROR: Database password is empty."
-                echo "Expected variable: $DB_PASS_VAR"
-                exit 1
-              fi
-
-
-              echo "Database configuration loaded successfully."
-
+              echo "Database configuration loaded ($DB_NAME_VAR)."
 
             else
 
-              echo ""
               echo "Service type '$TYPE' does not require database configuration."
-
-              DB_NAME=""
-              DB_USER=""
-              DB_PASS=""
 
             fi
 
@@ -451,7 +497,6 @@ jobs:
             # ==================================================
             # Deploy Based On Service Type
             # ==================================================
-
             echo ""
             echo "========================================"
             echo "Deploying $SERVICE in $ENV"
@@ -466,39 +511,20 @@ jobs:
               # ==================================================
               java)
 
-                echo "Building Java project..."
+                require_port
 
+                if image_is_current "$IMAGE_REF"; then
+                  echo "Image $IMAGE_REF already built from this commit - skipping build."
+                else
+                  echo "Building Java project..."
+                  mvn -B clean package -DskipTests
 
-                mvn -B clean package -DskipTests
-
-
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
-
-
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-
-
-                echo "Building Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
+                  echo "Building Docker image..."
+                  build_image "$IMAGE_REF"
+                fi
 
                 # Optional per service, from its yml: a data folder kept across deploys
                 # (in /srv/<service>/<env>/data on the server), and its own RabbitMQ vhost.
-                EXTRA_ARGS=()
-
                 if [ -n "$DATA_DIR" ]; then
                   HOST_DATA_DIR="/srv/$SERVICE/$ENV/data"
                   if [ ! -d "$HOST_DATA_DIR" ]; then
@@ -506,41 +532,42 @@ jobs:
                     echo "Create it once: sudo mkdir -p $HOST_DATA_DIR"
                     exit 1
                   fi
-                  EXTRA_ARGS+=(-v "$HOST_DATA_DIR:$DATA_DIR")
+                  RUN_ARGS+=(-v "$HOST_DATA_DIR:$DATA_DIR")
                 fi
 
                 if [ -n "$RABBITMQ_VHOST" ]; then
-                  EXTRA_ARGS+=(-e RABBITMQ_VHOST="$RABBITMQ_VHOST")
+                  RUN_ARGS+=(-e RABBITMQ_VHOST="$RABBITMQ_VHOST")
                 fi
 
+                # "-e NAME" (no value) makes docker read the value from this shell's
+                # environment, so secrets never appear on the docker command line.
+                export SPRING_PROFILES_ACTIVE="$ENV"
+                export SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST_FOR_TYPE}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true"
+                export SPRING_DATASOURCE_USERNAME="$DB_USER"
+                export SPRING_DATASOURCE_PASSWORD="$DB_PASS"
 
-                echo "Starting container..."
-
-
-                docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  --restart unless-stopped \
-                  --network center-network \
+                swap_container "$CONTAINER_NAME" "$HEALTH_URL" \
+                  "${RUN_ARGS[@]}" \
                   -p "${APP_PORT}:8080" \
-                  "${EXTRA_ARGS[@]}" \
-                  -e SPRING_PROFILES_ACTIVE="$ENV" \
-                  -e SPRING_DATASOURCE_URL="jdbc:sqlserver://${DB_HOST_JAVA}:1433;databaseName=${DB_NAME};encrypt=true;trustServerCertificate=true" \
-                  -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
-                  -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
-                  -e SMSTOKEN="$SMSTOKEN" \
-                  -e APP_MAIL_MAILBOX_RESOURCE_ID="$mailbox_resource_id" \
-                  -e APP_MAIL_API_TOKEN="$api_token" \
-                  -e BROADNET_ACCESS_KEY="$BROADNET_ACCESS_KEY" \
-                  -e BROADNET_USERNAME="$BROADNET_USERNAME" \
-                  -e BROADNET_PASSWORD="$BROADNET_PASSWORD" \
-                  -e BROADNET_SMPP_PASSWORD="$BROADNET_SMPP_PASSWORD" \
-                  -e BROADNET_SMPP_SYSTEM_ID="$BROADNET_SMPP_SYSTEM_ID" \
-                  -e RABBITMQ_USERNAME="$RABBITMQ_USERNAME" \
-                  -e RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD" \
-                  -e APP_JWT_SECRET="$APP_JWT_SECRET" \
-                  -e APP_TWO_FACTOR_ENCRYPTION_KEY="$APP_TWO_FACTOR_ENCRYPTION_KEY" \
-                  "${IMAGE_NAME}:${TAG}"
+                  -e SPRING_PROFILES_ACTIVE \
+                  -e SPRING_DATASOURCE_URL \
+                  -e SPRING_DATASOURCE_USERNAME \
+                  -e SPRING_DATASOURCE_PASSWORD \
+                  -e SMSTOKEN \
+                  -e APP_MAIL_MAILBOX_RESOURCE_ID \
+                  -e APP_MAIL_API_TOKEN \
+                  -e BROADNET_ACCESS_KEY \
+                  -e BROADNET_USERNAME \
+                  -e BROADNET_PASSWORD \
+                  -e BROADNET_SMPP_PASSWORD \
+                  -e BROADNET_SMPP_SYSTEM_ID \
+                  -e RABBITMQ_USERNAME \
+                  -e RABBITMQ_PASSWORD \
+                  -e APP_JWT_SECRET \
+                  -e APP_TWO_FACTOR_ENCRYPTION_KEY \
+                  "$IMAGE_REF"
 
+                cleanup_images "$IMAGE_NAME"
 
                 ;;
 
@@ -550,43 +577,32 @@ jobs:
               # ==================================================
               dotnet)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
+                require_port
 
+                if image_is_current "$IMAGE_REF"; then
+                  echo "Image $IMAGE_REF already built from this commit - skipping build."
+                else
+                  echo "Building .NET Docker image..."
+                  build_image "$IMAGE_REF"
+                fi
 
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+                if [ -n "$UPLOAD_SERVICE" ]; then
+                  RUN_ARGS+=(-v "/var/www/uploads/${UPLOAD_SERVICE}:/var/www/uploads/${UPLOAD_SERVICE}")
+                fi
 
+                export ASPNETCORE_ENVIRONMENT="$ENV"
+                export ASPNETCORE_URLS="http://+:8080"
+                export ConnectionStrings__DefaultConnection="Server=${DB_HOST_FOR_TYPE};Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASS};TrustServerCertificate=True;"
 
-                echo "Building .NET Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-
-                echo "Starting .NET container..."
-
-
-                docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  --restart unless-stopped \
-                  --network center-network \
+                swap_container "$CONTAINER_NAME" "$HEALTH_URL" \
+                  "${RUN_ARGS[@]}" \
                   -p "${APP_PORT}:8080" \
-                  -v "/var/www/uploads/${UPLOAD_SERVICE}:/var/www/uploads/${UPLOAD_SERVICE}" \
-                  -e ASPNETCORE_ENVIRONMENT="$ENV" \
-                  -e ASPNETCORE_URLS="http://+:8080" \
-                  -e ConnectionStrings__DefaultConnection="Server=${DB_HOST};Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASS};TrustServerCertificate=True;" \
-                  "${IMAGE_NAME}:${TAG}"
+                  -e ASPNETCORE_ENVIRONMENT \
+                  -e ASPNETCORE_URLS \
+                  -e ConnectionStrings__DefaultConnection \
+                  "$IMAGE_REF"
 
+                cleanup_images "$IMAGE_NAME"
 
                 ;;
 
@@ -596,14 +612,13 @@ jobs:
               # ==================================================
               node)
 
-                npm ci
+                mkdir -p "$RELEASE"
 
+                npm ci
 
                 npm run build || true
 
-
                 rsync -a . "$RELEASE"
-
 
                 ;;
 
@@ -613,11 +628,11 @@ jobs:
               # ==================================================
               python)
 
+                mkdir -p "$RELEASE"
+
                 pip install -r requirements.txt || true
 
-
                 rsync -a . "$RELEASE"
-
 
                 ;;
 
@@ -626,40 +641,32 @@ jobs:
               # ANGULAR
               #
               # Angular is built inside Docker.
-              # No npm install or npm build is executed here.
+              # The image depends on APP_ENV, so the environment is part of the
+              # image tag: dev and prod never overwrite each other's image.
               # ==================================================
-               angular)
-              
-                  IMAGE_NAME=$(echo "$SERVICE" \
-                    | tr '[:upper:]' '[:lower:]')
-              
-                  CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
-              
-                  echo "Building Angular Docker image..."
-                  echo "Environment: ${ENV}"
-              
-                  docker build \
-                    --build-arg APP_ENV="${ENV}" \
-                    -t "${IMAGE_NAME}:${TAG}" \
-                    .
-              
-                  echo "Removing old Angular container..."
-              
-                  docker rm -f \
-                    "$CONTAINER_NAME" \
-                    2>/dev/null || true
-              
-                  echo "Starting Angular container..."
-              
-                  docker run -d \
-                    --name "$CONTAINER_NAME" \
-                    --restart unless-stopped \
-                    --network center-network \
-                    --add-host=host.docker.internal:host-gateway \
-                    -p "${APP_PORT}:80" \
-                    "${IMAGE_NAME}:${TAG}"
-              
-                  ;;
+              angular)
+
+                require_port
+
+                IMAGE_REF="${IMAGE_NAME}:${TAG}-${ENV}"
+
+                if image_is_current "$IMAGE_REF"; then
+                  echo "Image $IMAGE_REF already built from this commit - skipping build."
+                else
+                  echo "Building Angular Docker image (APP_ENV=${ENV})..."
+                  build_image "$IMAGE_REF" --build-arg APP_ENV="${ENV}"
+                fi
+
+                swap_container "$CONTAINER_NAME" "$HEALTH_URL" \
+                  "${RUN_ARGS[@]}" \
+                  --add-host=host.docker.internal:host-gateway \
+                  -p "${APP_PORT}:80" \
+                  "$IMAGE_REF"
+
+                cleanup_images "$IMAGE_NAME"
+
+                ;;
+
 
               # ==================================================
               # STATIC HTML
@@ -669,73 +676,53 @@ jobs:
               # ==================================================
               html)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
+                require_port
 
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+                mkdir -p "$RELEASE"
 
                 echo "Copying HTML files..."
 
                 rsync -a --delete --exclude '.git' . "$RELEASE"
 
-                echo "Removing old HTML container..."
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-                echo "Starting HTML container (nginx)..."
-
-                docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  --restart unless-stopped \
-                  --network center-network \
+                swap_container "$CONTAINER_NAME" "$HEALTH_URL" \
+                  "${RUN_ARGS[@]}" \
                   -p "${APP_PORT}:80" \
                   -v "${RELEASE}:/usr/share/nginx/html:ro" \
                   nginx:alpine
 
+                # Keep this release and the previous one, delete older ones.
+                ls -1dt "$BASE/releases"/*/ 2>/dev/null \
+                  | tail -n +3 \
+                  | xargs -r rm -rf
+
                 ;;
+
+
               # ==================================================
               # GENERIC DOCKER SERVICE
               # ==================================================
               docker)
 
-                IMAGE_NAME=$(echo "$SERVICE" \
-                  | tr '[:upper:]' '[:lower:]')
+                if image_is_current "$IMAGE_REF"; then
+                  echo "Image $IMAGE_REF already built from this commit - skipping build."
+                else
+                  echo "Building Docker image..."
+                  build_image "$IMAGE_REF"
+                fi
 
+                export DATABASE_NAME="$DB_NAME"
+                export DATABASE_USERNAME="$DB_USER"
+                export DATABASE_PASSWORD="$DB_PASS"
 
-                CONTAINER_NAME="${ENV}-${IMAGE_NAME}"
+                swap_container "$CONTAINER_NAME" "" \
+                  "${RUN_ARGS[@]}" \
+                  -e DATABASE_HOST \
+                  -e DATABASE_NAME \
+                  -e DATABASE_USERNAME \
+                  -e DATABASE_PASSWORD \
+                  "$IMAGE_REF"
 
-
-                echo "Building Docker image..."
-
-
-                docker build \
-                  -t "${IMAGE_NAME}:${TAG}" \
-                  .
-
-
-                echo "Removing old container..."
-
-
-                docker rm -f \
-                  "$CONTAINER_NAME" \
-                  2>/dev/null || true
-
-
-                echo "Starting Docker container..."
-
-
-                docker run -d \
-                  --name "$CONTAINER_NAME" \
-                  --restart unless-stopped \
-                  --network center-network \
-                  -e DATABASE_HOST="$DB_HOST" \
-                  -e DATABASE_NAME="$DB_NAME" \
-                  -e DATABASE_USERNAME="$DB_USER" \
-                  -e DATABASE_PASSWORD="$DB_PASS" \
-                  "${IMAGE_NAME}:${TAG}"
-
+                cleanup_images "$IMAGE_NAME"
 
                 ;;
 
@@ -745,7 +732,7 @@ jobs:
               # ==================================================
               *)
 
-                echo "ERROR: Unknown service type: $TYPE"
+                echo "ERROR: Unknown service type: '$TYPE'"
 
                 exit 1
 
@@ -754,10 +741,53 @@ jobs:
             esac
 
 
+            # The build workspace is no longer needed.
+            cd "$GITHUB_WORKSPACE"
+            rm -rf "$WORKSPACE"
+
+
             echo ""
             echo "========================================"
             echo "SUCCESS: $SERVICE deployed successfully"
             echo "========================================"
+          }
 
 
-          done <<< "$CHANGED_FILES"
+          # ==================================================
+          # Process Changed Files
+          #
+          # Each service runs in its own subshell: one failing service does not
+          # stop the others, and the job fails at the end if any of them failed.
+          # ==================================================
+          mapfile -t FILES <<< "$CHANGED_FILES"
+
+          FAILED=()
+
+          for FILE in "${FILES[@]}"; do
+
+            [ -n "$FILE" ] || continue
+
+            set +e
+            ( set -e; deploy_one "$FILE" ) </dev/null
+            RC=$?
+            set -e
+
+            if [ "$RC" -ne 0 ]; then
+              FAILED+=("$FILE")
+            fi
+
+          done
+
+
+          # Old build cache (older than 7 days).
+          docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+
+
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo ""
+            echo "========================================"
+            echo "FAILED deployments:"
+            printf '  %s\n' "${FAILED[@]}"
+            echo "========================================"
+            exit 1
+          fi
